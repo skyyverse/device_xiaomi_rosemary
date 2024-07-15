@@ -181,6 +181,8 @@ blob_fixups: blob_fixups_user_type = {
         'vendor/lib64/libmtkcam_3rdparty.customer.so',
     ): blob_fixup()
         .call(blob_fixup_graphic_buffer_size),
+    'vendor/lib64/libdlbdsservice.so': blob_fixup()
+        .replace_needed("libstagefright_foundation.so", "libstagefright_foundation-v33.so"),
 }  # fmt: skip
 
 module = ExtractUtilsModule(
