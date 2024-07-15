@@ -957,6 +957,22 @@ vendor/lib64/libgralloc_metadata.so
 vendor/lib64/libgralloctypes_mtk.so
 vendor/lib64/libscltm.so
 
+# Dolby - from tanzanite OS2.0.207.0.VOGEUXM
+vendor/bin/hw/vendor.dolby.hardware.dms@2.0-service|f456fd256d6adc69dc15cbfe2bba88fd7955f0f1
+vendor/etc/dolby/dax-default.xml|3f6b68bdc3421d85ec20e44822840659498d63fc
+vendor/etc/init/vendor.dolby.hardware.dms@2.0-service.rc|29296ebfe89b2697fec573be73cc3757fd97bed6
+vendor/etc/vintf/manifest/manifest_vendor.dolby.hardware.dms.xml|c8095f649de19b80271fb429b4b6b439297a0678
+vendor/lib/soundfx/libswdap.so|5f11082d4d8904f073922c0ef8a149942b7754db
+vendor/lib/libdapparamstorage.so|60b35683b54bc96a07e077e51d41a84188035213
+vendor/lib/libdeccfg.so|3c1db9cc0df4cb9490f14bf82dac83b2289a0bea
+vendor/lib/vendor.dolby.hardware.dms@2.0.so|18cb0f9bb3d816a383b465e92fc41d4941e2b259
+vendor/lib64/soundfx/libswdap.so|02a18b9e31988a2b00ae04b8c6a8f156fc5627f8
+vendor/lib64/libdapparamstorage.so|82c8a048c3c1efebb6e9a8bde1b5dab0a21a44f0
+vendor/lib64/libdeccfg.so|7e489f73c8edf514ec2ffd7a7cc4aae5dc95632c
+vendor/lib64/libdlbdsservice.so|c5aac3610291b22906fb3089ce1e0b80ae94a6f1
+vendor/lib64/vendor.dolby.hardware.dms@2.0-impl.so|d0cf6b19fdcdbb1015a68ef90e3e32d40cf7253e
+vendor/lib64/vendor.dolby.hardware.dms@2.0.so|c97a8e87354a36f7fbacd783d403a8e8a89e5c38
+
 # Engineer Mode
 vendor/lib64/vendor.mediatek.hardware.engineermode@1.0.so
 vendor/lib64/vendor.mediatek.hardware.engineermode@1.1.so
