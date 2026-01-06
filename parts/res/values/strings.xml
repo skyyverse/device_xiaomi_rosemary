@@ -32,13 +32,6 @@
     <string name="thermal_streaming">Streaming</string>
     <string name="thermal_video">Video</string>
 
-    <!-- Per-app refresh rate -->
-    <string name="refresh_title">Per-app refresh rate</string>
-    <string name="refresh_summary">Set the maximum refresh rate for a specific application</string>
-    <string name="refresh_default">Default</string>
-    <string name="refresh_standard">60Hz</string>
-    <string name="refresh_extreme">120Hz</string>
-
     <!-- Doze Strings -->
     <string name="doze_brightness_low">Low brightness</string>
     <string name="doze_brightness_high">High brightness</string>
