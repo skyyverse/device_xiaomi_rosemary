@@ -12,6 +12,8 @@ genfscon sysfs /devices/platform/fingerprint                                    
 # GPU
 genfscon sysfs /kernel/gpu/gpu_min_clock u:object_r:vendor_sysfs_gpu:s0
 genfscon sysfs /kernel/gpu/gpu_max_clock u:object_r:vendor_sysfs_gpu:s0
+genfscon proc /mtk_mali/utilization u:object_r:proc_gpu:s0
+genfscon proc /gpufreq/gpufreq_opp_dump u:object_r:proc_gpu:s0
 
 # Health
 genfscon sysfs /devices/platform/11004000.i2c7/i2c-7/7-0055/power_supply/parallel                                               u:object_r:sysfs_batteryinfo:s0

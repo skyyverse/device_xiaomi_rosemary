@@ -19,55 +19,93 @@ package org.lineageos.settings.gamebar;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 public class GameBarGpuInfo {
 
-    private static final String GPU_USAGE_PATH = "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage";
-    private static final String GPU_CLOCK_PATH = "/sys/class/kgsl/kgsl-3d0/gpuclk";
-    private static final String GPU_TEMP_PATH  = "/sys/class/kgsl/kgsl-3d0/temp";
+    private static final String GPU_UTIL_PATH = "/proc/mtk_mali/utilization";
+    private static final String GPU_OPP_DUMP_PATH = "/proc/gpufreq/gpufreq_opp_dump";
 
     public static String getGpuUsage() {
-        String line = readLine(GPU_USAGE_PATH);
+        String line = readLine(GPU_UTIL_PATH);
         if (line == null) {
             return "N/A";
         }
-        line = line.replace("%", "").trim();
+        
         try {
-            int val = Integer.parseInt(line);
-            return String.valueOf(val);
+            if (line.contains("ACTIVE=")) {
+                String[] parts = line.split("\\s+");
+                for (String part : parts) {
+                    if (part.startsWith("ACTIVE=")) {
+                        String activeStr = part.substring(7).trim();
+                        int active = Integer.parseInt(activeStr);
+                        return String.valueOf(active);
+                    }
+                }
+            }
+            return "N/A";
         } catch (NumberFormatException e) {
             return "N/A";
         }
     }
 
     public static String getGpuClock() {
-        String line = readLine(GPU_CLOCK_PATH);
-        if (line == null) {
+        String utilLine = readLine(GPU_UTIL_PATH);
+        if (utilLine == null) {
             return "N/A";
         }
-        line = line.trim();
+
+        int oppIdx = -1;
         try {
-            long hz = Long.parseLong(line);
-            long mhz = hz / 1_000_000;
-            return String.valueOf(mhz);
+            if (utilLine.contains("OPP_IDX=")) {
+                String[] parts = utilLine.split("\\s+");
+                for (String part : parts) {
+                    if (part.startsWith("OPP_IDX=")) {
+                        oppIdx = Integer.parseInt(part.substring(8).trim());
+                        break;
+                    }
+                }
+            }
         } catch (NumberFormatException e) {
             return "N/A";
         }
+
+        if (oppIdx < 0) {
+            return "N/A";
+        }
+
+        Map<Integer, Long> oppFreqMap = parseOppDump();
+        if (oppFreqMap == null || !oppFreqMap.containsKey(oppIdx)) {
+            return "N/A";
+        }
+
+        long freqKhz = oppFreqMap.get(oppIdx);
+        long mhz = freqKhz / 1_000;
+        return String.valueOf(mhz);
     }
 
-    public static String getGpuTemp() {
-        String line = readLine(GPU_TEMP_PATH);
-        if (line == null) {
-            return "N/A";
+    private static Map<Integer, Long> parseOppDump() {
+        Map<Integer, Long> oppMap = new HashMap<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(GPU_OPP_DUMP_PATH))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line.contains("freq =")) {
+                    try {
+                        int idx = Integer.parseInt(line.substring(1, line.indexOf("]")));
+                        int freqStart = line.indexOf("freq = ") + 7;
+                        int freqEnd = line.indexOf(",", freqStart);
+                        long freq = Long.parseLong(line.substring(freqStart, freqEnd).trim());
+                        oppMap.put(idx, freq);
+                    } catch (Exception e) {
+                        continue;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            return null;
         }
-        line = line.trim();
-        try {
-            float raw = Float.parseFloat(line);
-            float c   = raw / 1000f;
-            return String.format("%.1f", c);
-        } catch (NumberFormatException e) {
-            return "N/A";
-        }
+        return oppMap.isEmpty() ? null : oppMap;
     }
 
     private static String readLine(String path) {

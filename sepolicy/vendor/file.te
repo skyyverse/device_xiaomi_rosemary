@@ -12,6 +12,7 @@ type proc_sched_stune, fs_type, proc_type;
 
 # GPU
 type vendor_sysfs_gpu, fs_type, sysfs_type;
+type proc_gpu, fs_type, proc_type;
 
 # Touchpanel
 type sysfs_touchpanel, sysfs_type, fs_type;

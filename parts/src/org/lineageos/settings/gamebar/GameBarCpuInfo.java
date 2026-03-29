@@ -29,7 +29,7 @@ public class GameBarCpuInfo {
     private static long sPrevIdle = -1;
     private static long sPrevTotal = -1;
 
-    private static final String CPU_TEMP_PATH = "/sys/class/thermal/thermal_zone0/temp";
+    private static final String CPU_TEMP_PATH = "/sys/class/thermal/thermal_zone3/temp";
 
     public static String getCpuUsage() {
         String line = readLine("/proc/stat");

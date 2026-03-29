@@ -60,7 +60,7 @@ public class GameBar {
     }
 
     private static final String FPS_PATH          = "/sys/class/drm/sde-crtc-0/measured_fps";
-    private static final String BATTERY_TEMP_PATH = "/sys/class/power_supply/battery/temp";
+    private static final String BATTERY_TEMP_PATH = "/sys/class/thermal/thermal_zone0/temp";
 
     private static final String PREF_KEY_X = "game_bar_x";
     private static final String PREF_KEY_Y = "game_bar_y";
@@ -95,7 +95,6 @@ public class GameBar {
 
     private boolean mShowGpuUsage    = false;
     private boolean mShowGpuClock    = false;
-    private boolean mShowGpuTemp     = false;
 
     private boolean mLongPressEnabled      = false;
     private long mLongPressThresholdMs = 1000;
@@ -183,7 +182,6 @@ public class GameBar {
 
         mShowGpuUsage    = prefs.getBoolean("game_bar_gpu_usage_enable", false);
         mShowGpuClock    = prefs.getBoolean("game_bar_gpu_clock_enable", false);
-        mShowGpuTemp     = prefs.getBoolean("game_bar_gpu_temp_enable", false);
 
         mDoubleTapCaptureEnabled = prefs.getBoolean("game_bar_doubletap_capture", false);
         mSingleTapToggleEnabled  = prefs.getBoolean("game_bar_single_tap_toggle", false);
@@ -347,7 +345,7 @@ public class GameBar {
             if (tmp != null && !tmp.isEmpty()) {
                 try {
                     int raw = Integer.parseInt(tmp.trim());
-                    float c = raw / 10f;
+                    float c = raw / 1000f;
                     batteryTempStr = String.format(Locale.getDefault(), "%.1f", c);
                 } catch (NumberFormatException ignored) {}
             }
@@ -398,13 +396,6 @@ public class GameBar {
             statViews.add(createStatLine("GPU Freq", "N/A".equals(gpuClockStr) ? "N/A" : gpuClockStr + "MHz"));
         }
 
-        // 9) GPU temp
-        String gpuTempStr = "N/A";
-        if (mShowGpuTemp) {
-            gpuTempStr = GameBarGpuInfo.getGpuTemp();
-            statViews.add(createStatLine("GPU Temp", "N/A".equals(gpuTempStr) ? "N/A" : gpuTempStr + "°C"));
-        }
-
         if ("side_by_side".equals(mSplitMode)) {
             mRootLayout.setOrientation(LinearLayout.HORIZONTAL);
             if ("minimal".equals(mOverlayFormat)) {
@@ -438,8 +429,7 @@ public class GameBar {
                     cpuUsageStr,
                     cpuTempStr,
                     gpuUsageStr,
-                    gpuClockStr,
-                    gpuTempStr
+                    gpuClockStr
             );
         }
 
@@ -573,7 +563,6 @@ public class GameBar {
 
     public void setShowGpuUsage(boolean show)    { mShowGpuUsage = show; }
     public void setShowGpuClock(boolean show)    { mShowGpuClock = show; }
-    public void setShowGpuTemp(boolean show)     { mShowGpuTemp = show; }
 
     public void updateTextSize(int sp) {
         mTextSizeSp = sp;
