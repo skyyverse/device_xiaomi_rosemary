@@ -33,6 +33,8 @@
     <string name="thermal_video">Video</string>
 
     <!-- Doze Strings -->
+    <string name="doze_settings_help_title">Ambient display</string>
+    <string name="doze_settings_help_text">Ambient display shows information while the screen is off, such as the time and incoming notifications.\n\nWhen Always-on display is enabled, the ambient display stays on while the screen would otherwise be off.</string>
     <string name="doze_brightness_low">Low brightness</string>
     <string name="doze_brightness_high">High brightness</string>
     <string name="doze_brightness_adaptive">Adaptive brightness</string>

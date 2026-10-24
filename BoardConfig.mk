@@ -22,6 +22,7 @@ AB_OTA_PARTITIONS := \
     vbmeta_vendor
 
 BUILD_BROKEN_DUP_RULES := true
+BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
 
 # APEX
 DEXPREOPT_GENERATE_APEX_IMAGE := true
@@ -120,7 +121,7 @@ BOARD_MAIN_PARTITION_LIST := \
     vendor
 
 # Reserve space for gapps install
--include vendor/lineage/config/BoardConfigReservedSize.mk
+-include vendor/infinity/config/BoardConfigReservedSize.mk
 
 BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_SYSTEM_EXTIMAGE_FILE_SYSTEM_TYPE := ext4
