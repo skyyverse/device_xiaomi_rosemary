@@ -74,7 +74,3 @@ wifi.direct.interface=p2p0
 ro.zram.mark_idle_delay_mins=60
 ro.zram.first_wb_delay_mins=1440
 ro.zram.periodic_wb_delay_hours=24
-
-# Infinity Beyond X
-ro.infinity.soc=MediaTek Helio G95-Ultra
-ro.infinity.camera=64MP,8MP,2MP,2MP

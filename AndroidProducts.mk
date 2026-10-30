@@ -5,4 +5,4 @@
 #
 
 PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/infinity_rosemary.mk
+    $(LOCAL_DIR)/shinkai_rosemary.mk
