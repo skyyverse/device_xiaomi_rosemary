@@ -10,15 +10,33 @@ android_app {
         "SettingsLibDefaults",
     ],
 
-    srcs: ["src/**/*.java"],
+    srcs: [
+        "src/**/*.java",
+        "src/**/*.kt",
+        "src/**/*.aidl",
+    ],
 
     certificate: "platform",
     resource_dirs: ["res"],
+    asset_dirs: ["assets"],
     platform_apis: true,
     system_ext_specific: true,
     privileged: true,
 
     static_libs: [
+        // GameBar (Jetpack Compose UI)
+        "androidx.activity_activity-compose",
+        "androidx.compose.animation_animation",
+        "androidx.compose.foundation_foundation",
+        "androidx.compose.material3_material3",
+        "androidx.compose.material_material-icons-extended",
+        "androidx.compose.runtime_runtime",
+        "androidx.compose.ui_ui",
+        "androidx.compose.ui_ui-text",
+        "androidx.compose.ui_ui-tooling-preview",
+        "androidx.lifecycle_lifecycle-runtime-compose",
+        "androidx.core_core",
+        "androidx.recyclerview_recyclerview",
         "org.lineageos.settings.resources",
     ],
 
@@ -28,6 +46,7 @@ android_app {
 
     required: [
         "privapp_whitelist_org.lineageos.settings.xml",
+        "preinstalled-packages-platform-xiaomiparts.xml",
     ],
 }
 
@@ -35,5 +54,13 @@ prebuilt_etc {
     name: "privapp_whitelist_org.lineageos.settings.xml",
     src: "permissions/privapp_whitelist_org.lineageos.settings.xml",
     sub_dir: "permissions",
+    system_ext_specific: true,
+}
+
+// Keep GameBar out of clone / private space (it ships a launcher entry and an overlay).
+prebuilt_etc {
+    name: "preinstalled-packages-platform-xiaomiparts.xml",
+    src: "sysconfig/preinstalled-packages-platform-xiaomiparts.xml",
+    sub_dir: "sysconfig",
     system_ext_specific: true,
 }
