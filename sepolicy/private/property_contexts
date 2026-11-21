@@ -19,3 +19,6 @@ persist.sys.fp.info                                     u:object_r:system_finger
 ro.fota.oem                                             u:object_r:build_prop:s0
 ro.product.marketname                                   u:object_r:build_prop:s0
 ro.miui.build.region                                    u:object_r:build_prop:s0
+
+# Thermal
+sys.rosemary.thermal.profile                            u:object_r:rosemary_thermal_profile_prop:s0 exact enum 0 8 9 10 11 12 14 19 21

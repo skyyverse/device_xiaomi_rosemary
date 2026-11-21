@@ -20,56 +20,14 @@ package org.lineageos.settings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.util.Log;
 
-import org.lineageos.settings.doze.DozeUtils;
 import org.lineageos.settings.thermal.ThermalUtils;
 
 public class BootCompletedReceiver extends BroadcastReceiver {
-    private static final boolean DEBUG = false;
-    private static final String TAG = "XiaomiParts";
-
     @Override
-    public void onReceive(final Context context, Intent intent) {
-        if (DEBUG) Log.i(TAG, "Received intent: " + intent.getAction());
-        switch (intent.getAction()) {
-            case Intent.ACTION_LOCKED_BOOT_COMPLETED:
-                handleLockedBootCompleted(context);
-                break;
-            case Intent.ACTION_BOOT_COMPLETED:
-                handleBootCompleted(context);
-                break;
+    public void onReceive(Context context, Intent intent) {
+        if (Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(intent.getAction())) {
+            ThermalUtils.startService(context);
         }
     }
-
-    private void handleLockedBootCompleted(Context context) {
-        if (DEBUG) Log.i(TAG, "Handling locked boot completed.");
-        try {
-            // Start necessary services
-            startServices(context);
-
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error during locked boot completed processing", e);
-        }
-    }
-
-    private void handleBootCompleted(Context context) {
-        if (DEBUG) Log.i(TAG, "Handling boot completed.");
-        // Add additional boot-completed actions if needed
-    }
-
-    private void startServices(Context context) {
-        if (DEBUG) Log.i(TAG, "Starting services...");
-
-        // Initialize Doze features
-        DozeUtils.onBootCompleted(context);
-
-        // Start Thermal Management Services
-        ThermalUtils.startService(context);
-
-
-    }
-
 }
-
