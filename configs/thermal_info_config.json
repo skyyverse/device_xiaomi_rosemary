@@ -28,7 +28,7 @@
       "Name": "mtktsbattery",
       "Type": "BATTERY",
       "HotThreshold": [40, 43, 46, 50, 55, 59, 60],
-      "HotHysteresis": [0, 2, 2, 2, 2, 2, 2],
+      "HotHysteresis": [0, 2, 2, 2, 2, 2, 1],
       "SendCallback": true,
       "PollingDelay": 5000,
       "PassiveDelay": 7000,
