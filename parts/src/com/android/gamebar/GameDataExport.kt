@@ -7,12 +7,15 @@
 package com.android.gamebar
 
 import android.os.Environment
-import java.io.BufferedWriter
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileWriter
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 class GameDataExport private constructor() {
 
@@ -64,7 +67,8 @@ class GameDataExport private constructor() {
     private var capturing = false
     private var currentLoggingMode = LoggingMode.PER_APP // Default to per-app logging
 
-    private val statsRows = mutableListOf<Array<String>>()
+    private val statsRows = ArrayDeque<Array<String>>()
+    private val exportScope = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
     private var listener: CaptureStateListener? = null
     private val perAppLogManager = PerAppLogManager.getInstance()
     
@@ -76,7 +80,6 @@ class GameDataExport private constructor() {
         capturing = true
         if (currentLoggingMode == LoggingMode.GLOBAL) {
             statsRows.clear()
-            statsRows.add(CSV_HEADER)
         }
         listener?.onCaptureStarted()
     }
@@ -91,7 +94,6 @@ class GameDataExport private constructor() {
     
     fun clearData() {
         statsRows.clear()
-        statsRows.add(CSV_HEADER)
     }
     
     fun getDataSize(): Int {
@@ -125,18 +127,7 @@ class GameDataExport private constructor() {
 
         when (currentLoggingMode) {
             LoggingMode.GLOBAL -> {
-                // Prevent unlimited memory growth
-                if (statsRows.size >= MAX_ROWS) {
-                    // Remove oldest entries but keep header
-                    if (statsRows.size > 1) {
-                        val toRemove = statsRows.size / 2
-                        repeat(toRemove) {
-                            if (statsRows.size > 1) {
-                                statsRows.removeAt(1)
-                            }
-                        }
-                    }
-                }
+                if (statsRows.size >= MAX_ROWS) statsRows.removeFirst()
 
                 val row = arrayOf(
                     dateTime,
@@ -157,7 +148,7 @@ class GameDataExport private constructor() {
                     powerWatt,
                     appRamUsage
                 )
-                statsRows.add(row)
+                statsRows.addLast(row)
             }
             LoggingMode.PER_APP -> {
                 // Add data to per-app logging system
@@ -185,33 +176,20 @@ class GameDataExport private constructor() {
     }
 
     fun exportDataToCsv() {
-        if (currentLoggingMode == LoggingMode.GLOBAL) {
-            if (statsRows.size <= 1) {
-                return
-            }
-            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        if (currentLoggingMode != LoggingMode.GLOBAL || statsRows.isEmpty()) return
+        val rows = statsRows.toList()
+        exportScope.launch {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(Date())
             val outFile = File(Environment.getExternalStorageDirectory(), "GameBar_log_$timeStamp.csv")
-
-            var bw: BufferedWriter? = null
             try {
-                bw = BufferedWriter(FileWriter(outFile, true))
-                for (row in statsRows) {
-                    bw.write(toCsvLine(row))
-                    bw.newLine()
+                outFile.bufferedWriter().use { writer ->
+                    writer.appendLine(CSV_HEADER.joinToString(","))
+                    rows.forEach { writer.appendLine(it.joinToString(",")) }
                 }
-                bw.flush()
-            } catch (ignored: IOException) {
-            } finally {
-                bw?.let {
-                    try { it.close() } catch (ignored: IOException) {}
-                }
+            } catch (e: IOException) {
+                Log.e("GameDataExport", "Cannot export GameBar log", e)
             }
         }
-        // Per-app logs are exported automatically when sessions end
-    }
-
-    private fun toCsvLine(columns: Array<String>): String {
-        return columns.joinToString(",")
     }
 
     fun setLoggingMode(mode: LoggingMode) {

@@ -17,7 +17,7 @@ class GameBarBootReceiver : BroadcastReceiver() {
     
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if (Intent.ACTION_BOOT_COMPLETED == action || Intent.ACTION_LOCKED_BOOT_COMPLETED == action) {
+        if (Intent.ACTION_LOCKED_BOOT_COMPLETED == action) {
             restoreOverlayState(context)
         }
     }

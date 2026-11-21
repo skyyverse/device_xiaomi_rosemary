@@ -315,7 +315,9 @@ fun GameBarSettingsScreen(
                                         gameBar.hide()
                                         gameBar.applyPreferences()
                                         gameBar.show()
-                                        context.startService(Intent(context, GameBarMonitorService::class.java))
+                                        if (autoEnable) {
+                                            context.startService(Intent(context, GameBarMonitorService::class.java))
+                                        }
                                     } else {
                                         if (GameBar.isInstanceCreated()) {
                                             GameBar.getInstance(context).hide()
@@ -508,7 +510,7 @@ fun GameBarSettingsScreen(
                                 ) {
                                     autoEnable = it
                                     putBoolean("game_bar_auto_enable", it)
-                                    if (it || gameBarEnabled) {
+                                    if (it) {
                                         context.startService(Intent(context, GameBarMonitorService::class.java))
                                     } else {
                                         context.stopService(Intent(context, GameBarMonitorService::class.java))

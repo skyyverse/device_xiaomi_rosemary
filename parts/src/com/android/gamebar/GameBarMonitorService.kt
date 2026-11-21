@@ -6,145 +6,137 @@
 
 package com.android.gamebar
 
+import android.app.ActivityTaskManager
 import android.app.Service
+import android.app.TaskStackListener
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.util.Log
 import androidx.preference.PreferenceManager
 
 class GameBarMonitorService : Service() {
 
-    private var handler: Handler? = null
-    private var monitorRunnable: Runnable? = null
-    @Volatile
-    private var isRunning = false
-
-    private var lastForegroundApp = ""
-    private var lastGameBarState = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val prefs by lazy { PreferenceManager.getDefaultSharedPreferences(this) }
     private val perAppLogManager = PerAppLogManager.getInstance()
+    private val taskManager = ActivityTaskManager.getService()
+    private val powerManager by lazy { getSystemService(PowerManager::class.java) }
+    private var listening = false
+    private var lastForegroundApp = "Unknown"
 
-    companion object {
-        private const val MONITOR_INTERVAL = 2000L // 2 seconds
+    private val refresh = Runnable { if (listening) updateForegroundApp() }
+    private val taskListener = object : TaskStackListener() {
+        override fun onTaskStackChanged() {
+            handler.removeCallbacks(refresh)
+            handler.post(refresh)
+        }
+    }
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            updateMonitoring()
+        }
+    }
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "game_bar_enable" || key == "game_bar_auto_enable" ||
+            key == GameBarPerAppConfigFragment.PREF_AUTO_APPS) {
+            updateMonitoring()
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
-        handler = Handler(Looper.getMainLooper())
-        monitorRunnable = object : Runnable {
-            override fun run() {
-                if (isRunning) {
-                    monitorForegroundApp()
-                    if (isRunning && handler != null) {
-                        handler!!.postDelayed(this, MONITOR_INTERVAL)
-                    }
-                }
-            }
-        }
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+        })
     }
-    
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!isRunning) {
-            isRunning = true
-            handler?.let { h ->
-                monitorRunnable?.let { r ->
-                    h.post(r)
-                }
+        updateMonitoring()
+        return if (prefs.getBoolean("game_bar_auto_enable", false)) START_STICKY else START_NOT_STICKY
+    }
+
+    private fun updateMonitoring() {
+        val autoEnabled = prefs.getBoolean("game_bar_auto_enable", false)
+        if (!autoEnabled || !powerManager.isInteractive) {
+            stopMonitoring()
+            if (!prefs.getBoolean("game_bar_enable", false) && GameBar.isShowing()) {
+                GameBar.getInstance(this).hide()
+            }
+            if (!autoEnabled) stopSelf()
+            return
+        }
+
+        if (!listening) {
+            try {
+                taskManager.registerTaskStackListener(taskListener)
+                listening = true
+            } catch (e: Exception) {
+                Log.w("GameBarMonitorService", "Cannot register task listener", e)
             }
         }
-        return START_STICKY
+        updateForegroundApp()
     }
-    
-    private fun monitorForegroundApp() {
-        try {
-            if (!isRunning) return
-            
-            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-            val masterEnabled = prefs.getBoolean("game_bar_enable", false)
-            
-            if (masterEnabled) {
-                if (!lastGameBarState) {
-                    val gameBar = GameBar.getInstance(this)
-                    gameBar.applyPreferences()
-                    gameBar.show()
-                    lastGameBarState = true
-                }
-                return
+
+    private fun updateForegroundApp() {
+        val foreground = ForegroundAppDetector.getForegroundPackageName()
+        val masterEnabled = prefs.getBoolean("game_bar_enable", false)
+        val autoApps = prefs.getStringSet(GameBarPerAppConfigFragment.PREF_AUTO_APPS, emptySet())
+        val shouldShow = masterEnabled || autoApps?.contains(foreground) == true
+        if (shouldShow && !GameBar.isShowing()) {
+            GameBar.getInstance(this).apply {
+                applyPreferences()
+                show()
             }
-            
-            val autoEnabled = prefs.getBoolean("game_bar_auto_enable", false)
-            if (!autoEnabled) {
-                if (lastGameBarState) {
-                    GameBar.getInstance(this).hide()
-                    lastGameBarState = false
-                }
-                return
-            }
-            
-            val foreground = ForegroundAppDetector.getForegroundPackageName(this)
-            
-            // Only update if foreground app changed
-            if (foreground != lastForegroundApp) {
-                val autoApps = prefs.getStringSet(
-                    GameBarPerAppConfigFragment.PREF_AUTO_APPS, 
-                    emptySet()
-                ) ?: emptySet()
-                    
-                val shouldShow = autoApps.contains(foreground)
-                
-                if (shouldShow && !lastGameBarState) {
-                    val gameBar = GameBar.getInstance(this)
-                    gameBar.applyPreferences()
-                    gameBar.show()
-                    lastGameBarState = true
-                } else if (!shouldShow && lastGameBarState) {
-                    GameBar.getInstance(this).hide()
-                    lastGameBarState = false
-                }
-                
-                // Handle per-app logging state changes
-                if (lastForegroundApp.isNotEmpty() && lastForegroundApp != "Unknown") {
-                    perAppLogManager.onAppWentToBackground(this, lastForegroundApp)
-                }
-                
-                if (foreground.isNotEmpty() && foreground != "Unknown") {
-                    perAppLogManager.onAppBecameForeground(this, foreground)
-                }
-                
+        } else if (!shouldShow && GameBar.isShowing()) {
+            GameBar.getInstance(this).hide()
+        }
+
+        if (foreground != lastForegroundApp) {
+            clearForegroundApp()
+            if (foreground != "Unknown") {
+                perAppLogManager.onAppBecameForeground(this, foreground)
                 lastForegroundApp = foreground
             }
-        } catch (e: Exception) {
-            // Prevent crashes from propagating
-            android.util.Log.e("GameBarMonitorService", "Error in monitorForegroundApp", e)
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    private fun clearForegroundApp() {
+        if (lastForegroundApp != "Unknown") {
+            perAppLogManager.onAppWentToBackground(this, lastForegroundApp)
+            lastForegroundApp = "Unknown"
+        }
     }
+
+    private fun stopMonitoring() {
+        if (listening) {
+            listening = false
+            try {
+                taskManager.unregisterTaskStackListener(taskListener)
+            } catch (e: Exception) {
+                Log.w("GameBarMonitorService", "Cannot unregister task listener", e)
+            }
+        }
+        handler.removeCallbacks(refresh)
+        clearForegroundApp()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        super.onDestroy()
-        isRunning = false
-        
-        handler?.let {
-            monitorRunnable?.let { runnable ->
-                it.removeCallbacks(runnable)
-            }
-            it.removeCallbacksAndMessages(null)
-        }
-        
-        // Clean up GameBar instance
-        try {
+        stopMonitoring()
+        unregisterReceiver(screenReceiver)
+        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        if (!prefs.getBoolean("game_bar_enable", false)) {
             GameBar.destroyInstance()
-        } catch (e: Exception) {
-            android.util.Log.e("GameBarMonitorService", "Error destroying GameBar instance", e)
         }
-        
-        // Clear state variables to prevent lingering references
-        lastForegroundApp = ""
-        lastGameBarState = false
-        handler = null
-        monitorRunnable = null
+        super.onDestroy()
     }
 }

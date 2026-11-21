@@ -7,15 +7,19 @@
 
 package com.android.gamebar
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.GestureDetector
@@ -29,11 +33,8 @@ import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.preference.PreferenceManager
+import com.android.gamebar.GameBarStatsSampler.Metric
 import org.lineageos.settings.R
-import java.io.BufferedReader
-import java.io.FileReader
-import java.io.IOException
-import java.text.SimpleDateFormat
 import java.util.*
 
 import android.content.ComponentName
@@ -41,7 +42,6 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.UserHandle
 import com.android.systemui.screenrecord.IRemoteRecording
-import com.android.systemui.screenrecord.IRecordingCallback
 
 class GameBar private constructor(context: Context) {
 
@@ -160,7 +160,22 @@ class GameBar private constructor(context: Context) {
     }
 
     private var itemSpacingDp = 8
-    private var layoutChanged = false
+    private var renderedStyle: List<Any>? = null
+    private var renderedShape = emptyList<Pair<String, Int>>()
+    private var renderedValues = emptyList<List<TextView>>()
+
+    private var samplingThread: HandlerThread? = null
+    private var samplingHandler: Handler? = null
+    private var samplingGeneration = 0
+    private var fpsActive = false
+    private var screenReceiverRegistered = false
+    private val powerManager = context.getSystemService(PowerManager::class.java)
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_ON) startUpdates()
+            else stopUpdates()
+        }
+    }
 
     // Touch coordinates for dragging
     private var initialX = 0
@@ -203,7 +218,7 @@ class GameBar private constructor(context: Context) {
                     .putString("game_bar_format", overlayFormat)
                     .apply()
                 Toast.makeText(context, context.getString(R.string.toast_overlay_format, overlayFormat), Toast.LENGTH_SHORT).show()
-                updateStats()
+                startUpdates()
             }
             "open_settings" -> {
                 openOverlaySettings()
@@ -244,15 +259,7 @@ class GameBar private constructor(context: Context) {
         }
     }
 
-    // Update runnable
-    private val updateRunnable = object : Runnable {
-        override fun run() {
-            if (isShowing) {
-                updateStats()
-                handler.postDelayed(this, updateIntervalMs.toLong())
-            }
-        }
-    }
+    private val updateRunnable = Runnable { scheduleSample() }
 
     fun applyPreferences() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
@@ -527,25 +534,22 @@ class GameBar private constructor(context: Context) {
 
         windowManager.addView(overlayView, layoutParams)
         isShowing = true
+        context.registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_ON).apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+        })
+        screenReceiverRegistered = true
         startUpdates()
-
-        // Start the FPS meter if using the new API method
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            GameBarFpsMeter.getInstance(context).start()
-        }
     }
 
     fun hide() {
-        // Set showing to false first to prevent any further operations
         isShowing = false
-        
-        stopUpdates()
-        
-        // Stop FPS meter first
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            GameBarFpsMeter.getInstance(context).stop()
+        if (screenReceiverRegistered) {
+            context.unregisterReceiver(screenReceiver)
+            screenReceiverRegistered = false
         }
-        
+        stopUpdates()
+        handler.removeCallbacks(longPressRunnable)
+
         // Remove overlay view
         overlayView?.let { view ->
             try {
@@ -562,7 +566,9 @@ class GameBar private constructor(context: Context) {
         overlayView = null
         rootLayout = null
         layoutParams = null
-        layoutChanged = true // Mark layout as changed
+        renderedStyle = null
+        renderedShape = emptyList()
+        renderedValues = emptyList()
         
         unbindScreenRecorder()
     }
@@ -581,449 +587,187 @@ class GameBar private constructor(context: Context) {
         
         // Reset all state variables
         pressActive = false
-        layoutChanged = false
     }
     
     private fun stopUpdates() {
+        samplingGeneration++
         handler.removeCallbacks(updateRunnable)
-        handler.removeCallbacks(longPressRunnable)
-        handler.removeCallbacksAndMessages(null)
+        samplingHandler?.removeCallbacksAndMessages(null)
+        samplingThread?.quitSafely()
+        samplingThread = null
+        samplingHandler = null
+        updateFpsMeter(false)
     }
-    
+
     private fun startUpdates() {
-        handler.removeCallbacksAndMessages(null)
+        if (!isShowing || !powerManager.isInteractive) return
+        if (samplingThread == null) {
+            val thread = HandlerThread("GameBarStats").apply { start() }
+            samplingThread = thread
+            samplingHandler = Handler(thread.looper)
+        }
+        samplingGeneration++
+        samplingHandler?.removeCallbacksAndMessages(null)
+        handler.removeCallbacks(updateRunnable)
         handler.post(updateRunnable)
     }
 
-    private fun updateStats() {
-        // Early return if not showing or no layout
-        if (!isShowing) return
+    private fun updateFpsMeter(enabled: Boolean) {
+        if (enabled == fpsActive) return
+        fpsActive = enabled
+        val meter = GameBarFpsMeter.getInstance(context)
+        if (enabled) meter.start() else meter.stop()
+    }
+
+    private fun scheduleSample() {
+        val worker = samplingHandler ?: return
+        val generation = samplingGeneration
+        val visible = buildSet {
+            if (showFps) add(Metric.FPS)
+            if (showFrameTime) add(Metric.FRAME_TIME)
+            if (showBatteryTemp) add(Metric.BATTERY_TEMP)
+            if (showCpuUsage) add(Metric.CPU_USAGE)
+            if (showCpuClock) add(Metric.CPU_CLOCK)
+            if (showCpuTemp) add(Metric.CPU_TEMP)
+            if (showRam) add(Metric.RAM)
+            if (showRamSpeed) add(Metric.RAM_SPEED)
+            if (showRamTemp) add(Metric.RAM_TEMP)
+            if (showGpuUsage) add(Metric.GPU_USAGE)
+            if (showGpuClock) add(Metric.GPU_CLOCK)
+            if (showGpuTemp) add(Metric.GPU_TEMP)
+        }
+        val advanced = showFps && fpsDisplayMode == "advanced"
+        val export = GameDataExport.getInstance()
+        val recording = export.isCapturing() &&
+            !FpsRecordControlOverlayService.isSamplingRecording()
+        val logging = if (recording) GameBarStatsSampler.loggingMetrics(context) else emptySet()
+        val metrics = visible + logging
+        updateFpsMeter(Metric.FPS in metrics || Metric.FRAME_TIME in metrics)
+        worker.post {
+            val snapshot = try {
+                val packageName = if (recording) ForegroundAppDetector.getForegroundPackageName() else ""
+                GameBarStatsSampler.capture(context, packageName, metrics, advanced)
+            } catch (e: RuntimeException) {
+                android.util.Log.w("GameBar", "Cannot sample overlay statistics", e)
+                null
+            }
+            handler.post deliver@{
+                if (generation != samplingGeneration || !isShowing) return@deliver
+                if (snapshot != null) {
+                    renderStats(snapshot, visible, advanced)
+                    if (recording && !FpsRecordControlOverlayService.isSamplingRecording()) {
+                        GameBarStatsSampler.addToExport(snapshot, logging)
+                    }
+                }
+                handler.postDelayed(updateRunnable, updateIntervalMs.toLong())
+            }
+        }
+    }
+
+    private data class StatRow(val title: String, val values: List<String>, val stacked: Boolean = false)
+
+    private fun renderStats(
+        snapshot: GameBarStatsSampler.Snapshot,
+        visible: Set<Metric>,
+        advanced: Boolean
+    ) {
         val layout = rootLayout ?: return
-        
-        try {
-            // Always clear views to prevent duplication
+        val rows = buildList {
+            fun addRow(metric: Metric, title: String, suffix: String = "") {
+                if (metric !in visible) return
+                val value = snapshot[metric]
+                add(StatRow(title, listOf(if (value == "N/A") value else value + suffix)))
+            }
+
+            if (advanced) {
+                val (fps1, fps01) = snapshot.fpsLows
+                fun formatLow(value: Float) =
+                    if (value < 0) "Collecting..." else String.format(Locale.getDefault(), "%.0f", value)
+                add(StatRow("FPS Stats", listOf(
+                    "FPS: ${snapshot[Metric.FPS]}",
+                    "1% Low: ${formatLow(fps1)}",
+                    "0.1% Low: ${formatLow(fps01)}"
+                ), stacked = true))
+            } else {
+                addRow(Metric.FPS, "FPS")
+            }
+            addRow(Metric.FRAME_TIME, "Frame Time", "ms")
+            addRow(Metric.BATTERY_TEMP, "Temp", "°C")
+            addRow(Metric.CPU_USAGE, "CPU", "%")
+            if (Metric.CPU_CLOCK in visible && snapshot.cpuFrequencies.isNotEmpty()) {
+                add(StatRow("CPU Freq", snapshot.cpuFrequencies, stacked = true))
+            }
+            addRow(Metric.CPU_TEMP, "CPU Temp", "°C")
+            addRow(Metric.RAM, "RAM", " MB")
+            addRow(Metric.RAM_SPEED, "RAM Freq")
+            addRow(Metric.RAM_TEMP, "RAM Temp")
+            addRow(Metric.GPU_USAGE, "GPU", "%")
+            addRow(Metric.GPU_CLOCK, "GPU Freq", "MHz")
+            addRow(Metric.GPU_TEMP, "GPU Temp", "°C")
+        }
+        val shape = rows.map { it.title to it.values.size }
+        val style = listOf(overlayFormat, splitMode, textSizeSp, titleColorHex, valueColorHex, itemSpacingDp)
+        var changed = shape != renderedShape || style != renderedStyle
+        if (changed) {
+            renderedShape = shape
+            renderedStyle = style
             layout.removeAllViews()
-            layoutChanged = false
-
-        // Create fresh views each time
-        val statViews = mutableListOf<View>()
-
-        // 1) FPS - Always collect for logging
-        val fpsMeter = GameBarFpsMeter.getInstance(context)
-        val fpsVal = fpsMeter.getFps()
-        val fpsStr = if (fpsVal >= 0) String.format(Locale.getDefault(), "%.0f", fpsVal) else "N/A"
-        
-        if (showFps) {
-            if (fpsDisplayMode == "advanced") {
-                // Advanced mode
-                val fps1PercentLow = fpsMeter.get1PercentLowFps()
-                val fps01PercentLow = fpsMeter.get01PercentLowFps()
-                
-                val fpsStats = mutableListOf<String>()
-                fpsStats.add("FPS: $fpsStr")
-                
-                if (fps1PercentLow >= 0) {
-                    fpsStats.add("1% Low: ${String.format(Locale.getDefault(), "%.0f", fps1PercentLow)}")
-                } else {
-                    fpsStats.add("1% Low: Collecting...")
+            renderedValues = rows.mapIndexed { index, row ->
+                if (index > 0 && splitMode == "side_by_side" && overlayFormat == "minimal") {
+                    layout.addView(createTextView(valueColorHex).apply { text = " . " })
                 }
-                
-                if (fps01PercentLow >= 0) {
-                    fpsStats.add("0.1% Low: ${String.format(Locale.getDefault(), "%.0f", fps01PercentLow)}")
-                } else {
-                    fpsStats.add("0.1% Low: Collecting...")
+                val line = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                val spacing = dpToPx(context, itemSpacingDp)
+                line.layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(spacing, spacing / 2, spacing, spacing / 2) }
+                layout.addView(line)
+                if (overlayFormat == "full") {
+                    line.addView(createTextView(titleColorHex).apply { text = "${row.title} " })
                 }
-                
-                statViews.add(buildFpsView(fpsStats))
-            } else {
-                // Basic mode
-                statViews.add(createStatLine("FPS", fpsStr))
-            }
-        }
-
-        // 1.1) Frame Time - Calculate from FPS
-        var frameTimeStr = "N/A"
-        if (fpsVal > 0) {
-            val frameTime = 1000.0 / fpsVal
-            frameTimeStr = String.format(Locale.getDefault(), "%.2f", frameTime)
-        }
-        if (showFrameTime) {
-            statViews.add(createStatLine("Frame Time", if (frameTimeStr == "N/A") "N/A" else "${frameTimeStr}ms"))
-        }
-
-        // 2) Battery temperature
-        var batteryTempStr = GameBarBatteryInfo.getBatteryTempC(context)
-        if (showBatteryTemp) {
-            statViews.add(createStatLine("Temp", "${batteryTempStr}°C"))
-        }
-
-        // 3) CPU usage - Always collect for logging
-        var cpuUsageStr = "N/A"
-        cpuUsageStr = GameBarCpuInfo.getCpuUsage()
-        if (showCpuUsage) {
-            val display = if (cpuUsageStr == "N/A") "N/A" else "${cpuUsageStr}%"
-            statViews.add(createStatLine("CPU", display))
-        }
-
-        // 4) CPU freq - Always collect for logging
-        var cpuClockStr = "N/A"
-        if (showCpuClock) {
-            val freqs = GameBarCpuInfo.getCpuFrequencies()
-            if (freqs.isNotEmpty()) {
-                statViews.add(buildCpuFreqView(freqs))
-                cpuClockStr = freqs.joinToString("; ")
-            }
-        } else {
-            // Still collect even if not shown, for potential logging
-            val freqs = GameBarCpuInfo.getCpuFrequencies()
-            if (freqs.isNotEmpty()) {
-                cpuClockStr = freqs.joinToString("; ")
-            }
-        }
-
-        // 5) CPU temp
-        var cpuTempStr = "N/A"
-        if (showCpuTemp) {
-            cpuTempStr = GameBarCpuInfo.getCpuTemp()
-            statViews.add(createStatLine("CPU Temp", if (cpuTempStr == "N/A") "N/A" else "${cpuTempStr}°C"))
-        } else {
-            // Still collect even if not shown
-            cpuTempStr = GameBarCpuInfo.getCpuTemp()
-        }
-
-        // 6) RAM usage
-        var ramStr = "N/A"
-        if (showRam) {
-            ramStr = GameBarMemInfo.getRamUsage()
-            statViews.add(createStatLine("RAM", if (ramStr == "N/A") "N/A" else "$ramStr MB"))
-        } else {
-            // Still collect even if not shown
-            ramStr = GameBarMemInfo.getRamUsage()
-        }
-
-        // 6.1) RAM speed
-        var ramSpeedStr = "N/A"
-        if (showRamSpeed) {
-            ramSpeedStr = GameBarMemInfo.getRamSpeed()
-            statViews.add(createStatLine("RAM Freq", ramSpeedStr))
-        } else {
-            // Still collect even if not shown
-            ramSpeedStr = GameBarMemInfo.getRamSpeed()
-        }
-
-        // 6.2) RAM temp
-        var ramTempStr = "N/A"
-        if (showRamTemp) {
-            ramTempStr = GameBarMemInfo.getRamTemp()
-            statViews.add(createStatLine("RAM Temp", ramTempStr))
-        } else {
-            // Still collect even if not shown
-            ramTempStr = GameBarMemInfo.getRamTemp()
-        }
-
-        // 7) GPU usage - Always collect for logging
-        var gpuUsageStr = "N/A"
-        gpuUsageStr = GameBarGpuInfo.getGpuUsage()
-        if (showGpuUsage) {
-            statViews.add(createStatLine("GPU", if (gpuUsageStr == "N/A") "N/A" else "${gpuUsageStr}%"))
-        }
-
-        // 8) GPU clock - Always collect for logging
-        var gpuClockStr = "N/A"
-        gpuClockStr = GameBarGpuInfo.getGpuClock()
-        if (showGpuClock) {
-            statViews.add(createStatLine("GPU Freq", if (gpuClockStr == "N/A") "N/A" else "${gpuClockStr}MHz"))
-        }
-
-        // 9) GPU temp - Always collect for logging
-        var gpuTempStr = "N/A"
-        gpuTempStr = GameBarGpuInfo.getGpuTemp()
-        if (showGpuTemp) {
-            statViews.add(createStatLine("GPU Temp", if (gpuTempStr == "N/A") "N/A" else "${gpuTempStr}°C"))
-        }
-
-        // 10) Battery level - logging data
-        val batteryLevelStr = GameBarBatteryInfo.getBatteryLevelPercent(context)
-        val batteryPowerWattStr = GameBarBatteryInfo.getBatteryPowerWatt(context)
-
-        if (splitMode == "side_by_side") {
-            layout.orientation = LinearLayout.HORIZONTAL
-            if (overlayFormat == "minimal") {
-                for (i in statViews.indices) {
-                    layout.addView(statViews[i])
-                    if (i < statViews.size - 1) {
-                        layout.addView(createDotView())
+                val valueContainer = if (row.stacked) {
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        line.addView(this)
                     }
+                } else {
+                    line
                 }
-            } else {
-                for (view in statViews) {
-                    layout.addView(view)
-                }
-            }
-        } else {
-            layout.orientation = LinearLayout.VERTICAL
-            for (view in statViews) {
-                layout.addView(view)
-            }
-        }
-
-        if (GameDataExport.getInstance().isCapturing()) {
-            val dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            val pkgName = ForegroundAppDetector.getForegroundPackageName(context)
-            val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-            
-            // Check logging parameters and use N/A if disabled
-            val logFps = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_FPS, true)) fpsStr else "N/A"
-            val logFrameTime = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_FRAME_TIME, true)) frameTimeStr else "N/A"
-            val logBatteryTemp = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_BATTERY_TEMP, true)) batteryTempStr else "N/A"
-            val logCpuUsage = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_CPU_USAGE, true)) cpuUsageStr else "N/A"
-            val logCpuClock = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_CPU_CLOCK, true)) cpuClockStr else "N/A"
-            val logCpuTemp = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_CPU_TEMP, true)) cpuTempStr else "N/A"
-            val logRam = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_RAM, true)) ramStr else "N/A"
-            val logRamSpeed = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_RAM_SPEED, true)) ramSpeedStr else "N/A"
-            val logRamTemp = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_RAM_TEMP, true)) ramTempStr else "N/A"
-            val logGpuUsage = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_GPU_USAGE, true)) gpuUsageStr else "N/A"
-            val logGpuClock = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_GPU_CLOCK, true)) gpuClockStr else "N/A"
-            val logGpuTemp = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_GPU_TEMP, true)) gpuTempStr else "N/A"
-            val logBatteryLevel = batteryLevelStr
-            val logPowerWatt = batteryPowerWattStr
-            val logAppRamUsage = if (prefs.getBoolean(GameBarLoggingPrefs.PREF_LOG_RAM, true)) GameBarMemInfo.getAppRamUsage(context, pkgName) else "N/A"
-
-            GameDataExport.getInstance().addOverlayData(
-                    dateTime,
-                    pkgName,
-                    logFps,
-                    logFrameTime,
-                    logBatteryTemp,
-                    logCpuUsage,
-                    logCpuClock,
-                    logCpuTemp,
-                    logRam,
-                    logRamSpeed,
-                    logRamTemp,
-                    logGpuUsage,
-                    logGpuClock,
-                    logGpuTemp,
-                    logBatteryLevel,
-                    logPowerWatt,
-                    logAppRamUsage
-            )
-        }
-
-            layoutParams?.let { lp ->
-                overlayView?.let { view ->
-                    try {
-                        applyAdaptiveOverlayWidth(lp, layout)
-                        clampToScreenBounds(lp, view)
-                        windowManager.updateViewLayout(view, lp)
-                    } catch (e: Exception) {
-                        // View might be in invalid state, ignore
+                row.values.map {
+                    createTextView(valueColorHex).apply {
+                        if (row.stacked) setPadding(spacing, spacing / 4, spacing, spacing / 4)
+                        valueContainer.addView(this)
                     }
                 }
             }
-        } catch (e: Exception) {
-            // Log error but continue operation to prevent crashes
-            android.util.Log.e("GameBar", "Error updating overlay stats: ${e.message}")
+        }
+        rows.forEachIndexed { rowIndex, row ->
+            row.values.forEachIndexed { valueIndex, value ->
+                val view = renderedValues[rowIndex][valueIndex]
+                if (view.text != value) {
+                    view.text = value
+                    changed = true
+                }
+            }
+        }
+        if (!changed) return
+
+        val params = layoutParams ?: return
+        val overlay = overlayView ?: return
+        val width = params.width
+        val x = params.x
+        val y = params.y
+        applyAdaptiveOverlayWidth(params, layout)
+        clampToScreenBounds(params, overlay)
+        if (params.width != width || params.x != x || params.y != y) {
+            windowManager.updateViewLayout(overlay, params)
         }
     }
 
-    private fun buildCpuFreqView(freqs: List<String>): View {
-        val freqContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        val spacingPx = dpToPx(context, itemSpacingDp)
-        val outerLp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(spacingPx, spacingPx / 2, spacingPx, spacingPx / 2)
-        }
-        freqContainer.layoutParams = outerLp
-
-        if (overlayFormat == "full") {
-            val labelTv = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(titleColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = "CPU Freq "
-            }
-            freqContainer.addView(labelTv)
-        }
-
-        val verticalFreqs = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        for (freqLine in freqs) {
-            val lineLayout = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-            }
-
-            val freqTv = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(valueColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = freqLine
-            }
-
-            lineLayout.addView(freqTv)
-
-            val lineLp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(spacingPx, spacingPx / 4, spacingPx, spacingPx / 4)
-            }
-            lineLayout.layoutParams = lineLp
-
-            verticalFreqs.addView(lineLayout)
-        }
-
-        freqContainer.addView(verticalFreqs)
-        return freqContainer
-    }
-
-    private fun buildFpsView(fpsStats: List<String>): View {
-        val fpsContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        val spacingPx = dpToPx(context, itemSpacingDp)
-        val outerLp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(spacingPx, spacingPx / 2, spacingPx, spacingPx / 2)
-        }
-        fpsContainer.layoutParams = outerLp
-
-        if (overlayFormat == "full") {
-            val labelTv = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(titleColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = "FPS Stats "
-            }
-            fpsContainer.addView(labelTv)
-        }
-
-        val verticalStats = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        for (statLine in fpsStats) {
-            val lineLayout = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-            }
-
-            val statTv = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(valueColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = statLine
-            }
-
-            lineLayout.addView(statTv)
-
-            val lineLp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(spacingPx, spacingPx / 4, spacingPx, spacingPx / 4)
-            }
-            lineLayout.layoutParams = lineLp
-
-            verticalStats.addView(lineLayout)
-        }
-
-        fpsContainer.addView(verticalStats)
-        return fpsContainer
-    }
-
-    private fun createStatLine(title: String, rawValue: String): LinearLayout {
-        val lineLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        if (overlayFormat == "full") {
-            val tvTitle = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(titleColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = if (title.isEmpty()) "" else "$title "
-            }
-
-            val tvValue = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(valueColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = rawValue
-            }
-
-            lineLayout.addView(tvTitle)
-            lineLayout.addView(tvValue)
-        } else {
-            val tvMinimal = TextView(context).apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-                try {
-                    setTextColor(Color.parseColor(valueColorHex))
-                } catch (e: Exception) {
-                    setTextColor(Color.WHITE)
-                }
-                setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-                text = rawValue
-            }
-            lineLayout.addView(tvMinimal)
-        }
-
-        val spacingPx = dpToPx(context, itemSpacingDp)
-        val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(spacingPx, spacingPx / 2, spacingPx, spacingPx / 2)
-        }
-        lineLayout.layoutParams = lp
-
-        return lineLayout
-    }
-
-    private fun createDotView(): View {
-        return TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
-            try {
-                setTextColor(Color.parseColor(valueColorHex))
-            } catch (e: Exception) {
-                setTextColor(Color.WHITE)
-            }
-            setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
-            text = " . "
-        }
+    private fun createTextView(color: String): TextView = TextView(context).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp.toFloat())
+        setTextColor(runCatching { Color.parseColor(color) }.getOrDefault(Color.WHITE))
+        setTypeface(this@GameBar.getTypeface(), Typeface.NORMAL)
     }
 
     // Public setter methods for feature toggles
@@ -1086,8 +830,8 @@ class GameBar private constructor(context: Context) {
         } else {
             try {
                 Typeface.createFromAsset(context.assets, fontPath)
-            } catch (e: Exception) {
-                android.util.Log.e("GameBar", "Failed to load font: $fontPath - ${e.message}")
+            } catch (_: RuntimeException) {
+                // Presets may refer to fonts removed from the bundled collection.
                 null
             }
         }
@@ -1128,14 +872,14 @@ class GameBar private constructor(context: Context) {
     fun updateOverlayFormat(format: String) {
         overlayFormat = format
         if (isShowing) {
-            updateStats()
+            startUpdates()
         }
     }
 
     fun updateItemSpacing(dp: Int) {
         itemSpacingDp = dp
         if (isShowing) {
-            updateStats()
+            startUpdates()
         }
     }
 
@@ -1158,7 +902,7 @@ class GameBar private constructor(context: Context) {
         splitMode = mode
         if (isShowing && overlayView != null) {
             applySplitMode()
-            updateStats()
+            startUpdates()
         }
     }
 
@@ -1345,14 +1089,6 @@ class GameBar private constructor(context: Context) {
     private fun pxToDp(px: Int): Int {
         val scale = context.resources.displayMetrics.density
         return (px / scale).toInt().coerceAtLeast(1)
-    }
-
-    private fun readLine(path: String): String? {
-        return try {
-            BufferedReader(FileReader(path)).use { it.readLine() }
-        } catch (e: IOException) {
-            null
-        }
     }
 
     private fun takeScreenshot() {

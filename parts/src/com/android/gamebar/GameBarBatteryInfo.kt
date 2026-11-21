@@ -16,10 +16,17 @@ import java.util.Locale
 
 object GameBarBatteryInfo {
 
-    fun getBatteryLevelPercent(context: Context): String {
+    private val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+
+    fun getBatterySnapshot(context: Context): Intent? = try {
+        context.registerReceiver(null, batteryFilter)
+    } catch (_: RuntimeException) {
+        null
+    }
+
+    fun getBatteryLevelPercent(intent: Intent?): String {
         return try {
-            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                ?: return "N/A"
+            if (intent == null) return "N/A"
             val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
             val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
             if (level < 0 || scale <= 0) return "N/A"
@@ -30,10 +37,9 @@ object GameBarBatteryInfo {
         }
     }
 
-    fun getBatteryPowerWatt(context: Context): String {
+    fun getBatteryPowerWatt(context: Context, intent: Intent?): String {
         return try {
-            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                ?: return "N/A"
+            if (intent == null) return "N/A"
             val batteryManager = context.getSystemService(BatteryManager::class.java)
                 ?: return "N/A"
             val currentUa = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
@@ -49,10 +55,9 @@ object GameBarBatteryInfo {
         }
     }
 
-    fun getBatteryTempC(context: Context): String {
+    fun getBatteryTempC(intent: Intent?): String {
         // Primary source: battery broadcast temperature.
         try {
-            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             if (intent != null) {
                 val tempTenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
                 if (tempTenths != Int.MIN_VALUE) {

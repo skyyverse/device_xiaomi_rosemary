@@ -6,239 +6,185 @@
 
 package com.android.gamebar
 
+import android.app.ActivityTaskManager
+import android.app.TaskStackListener
 import android.content.Context
 import android.content.SharedPreferences
-import android.os.Build
 import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import android.view.WindowManager
 import android.window.TaskFpsCallback
 import androidx.preference.PreferenceManager
-import java.io.BufferedReader
-import java.io.FileReader
+import java.io.File
 import java.io.IOException
-import java.lang.reflect.Field
-import java.lang.reflect.Method
 
-class GameBarFpsMeter private constructor(context: Context) {
+class GameBarFpsMeter private constructor(private val context: Context) {
 
     companion object {
-        private const val TOLERANCE = 0.1f
+        private const val TAG = "GameBarFpsMeter"
         private const val STALENESS_THRESHOLD_MS = 2000L
-        private const val TASK_CHECK_INTERVAL_MS = 1000L
-        
-        @Volatile
-        private var INSTANCE: GameBarFpsMeter? = null
+        private const val HISTORY_SIZE = 100
+        private const val FPS_METHOD = "game_bar_fps_method"
+        private val WHITESPACE = Regex("\\s+")
+
+        private var instance: GameBarFpsMeter? = null
 
         @JvmStatic
         @Synchronized
-        fun getInstance(context: Context): GameBarFpsMeter {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: GameBarFpsMeter(context.applicationContext).also { INSTANCE = it }
-            }
-        }
+        fun getInstance(context: Context): GameBarFpsMeter =
+            instance ?: GameBarFpsMeter(context.applicationContext).also { instance = it }
     }
 
-    private val context: Context = context.applicationContext
-    private val windowManager: WindowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-    private var currentFps = 0f
-    private var taskFpsCallback: TaskFpsCallback? = null
-    private var callbackRegistered = false
-    private var currentTaskId = -1
-    private var lastFpsUpdateTime = System.currentTimeMillis()
-    private val handler = Handler()
-    
-    // FPS history for percentile calculations
-    private val fpsHistory = mutableListOf<Float>()
-    private val maxHistorySize = 100
+    private val windowManager = context.getSystemService(WindowManager::class.java)
+    private val taskManager = ActivityTaskManager.getService()
+    private val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+    private val handler = Handler(Looper.getMainLooper())
 
-    init {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            taskFpsCallback = object : TaskFpsCallback() {
-                override fun onFpsReported(fps: Float) {
-                    if (fps > 0) {
-                        currentFps = fps
-                        lastFpsUpdateTime = System.currentTimeMillis()
-                        
-                        synchronized(fpsHistory) {
-                            fpsHistory.add(fps)
-                            if (fpsHistory.size > maxHistorySize) {
-                                fpsHistory.removeAt(0)
-                            }
-                        }
-                    }
-                }
-            }
+    private var clients = 0 // Main thread only.
+    private var listening = false
+    private var taskId = -1
+    private var fpsCallback: TaskFpsCallback? = null
+    private val history = ArrayDeque<Float>(HISTORY_SIZE)
+    private var currentFps = -1f
+    private var lastUpdate = 0L
+
+    private val updateTask = Runnable { updateFocusedTask() }
+    private val stackListener = object : TaskStackListener() {
+        override fun onTaskStackChanged() {
+            handler.removeCallbacks(updateTask)
+            handler.post(updateTask)
         }
     }
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == FPS_METHOD) updateRegistration()
+    }
 
+    // Each consumer acquires once and releases once, on the main thread.
     fun start() {
-        val method = prefs.getString("game_bar_fps_method", "new")
-        if (method != "new") return
-
-        stop()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val taskId = getFocusedTaskId()
-            if (taskId <= 0) {
-                return
-            }
-            currentTaskId = taskId
-            try {
-                taskFpsCallback?.let {
-                    windowManager.registerTaskFpsCallback(currentTaskId, Runnable::run, it)
-                    callbackRegistered = true
-                }
-            } catch (e: Exception) {
-                // Ignore registration errors
-            }
-            lastFpsUpdateTime = System.currentTimeMillis()
-            handler.postDelayed(taskCheckRunnable, TASK_CHECK_INTERVAL_MS)
-        }
+        if (clients++ != 0) return
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+        updateRegistration()
     }
 
     fun stop() {
-        val method = prefs.getString("game_bar_fps_method", "new")
-        if (method == "new" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (callbackRegistered) {
+        if (clients == 0 || --clients != 0) return
+        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        updateRegistration()
+    }
+
+    private fun updateRegistration() {
+        val shouldListen = clients > 0 && prefs.getString(FPS_METHOD, "new") == "new"
+        if (shouldListen) {
+            if (!listening) {
                 try {
-                    taskFpsCallback?.let {
-                        windowManager.unregisterTaskFpsCallback(it)
-                    }
+                    taskManager.registerTaskStackListener(stackListener)
+                    listening = true
                 } catch (e: Exception) {
-                    // Ignore unregistration errors
+                    Log.w(TAG, "Cannot monitor focused task", e)
                 }
-                callbackRegistered = false
             }
-            handler.removeCallbacks(taskCheckRunnable)
+            updateFocusedTask()
+        } else {
+            if (listening) {
+                try {
+                    taskManager.unregisterTaskStackListener(stackListener)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot unregister task listener", e)
+                }
+                listening = false
+            }
+            handler.removeCallbacks(updateTask)
+            clearCallback()
         }
+    }
+
+    private fun updateFocusedTask() {
+        if (clients == 0 || prefs.getString(FPS_METHOD, "new") != "new") return
+        try {
+            val focusedTask = taskManager.getFocusedRootTaskInfo()
+            val id = focusedTask?.childTaskIds?.lastOrNull() ?: focusedTask?.taskId ?: -1
+            if (id == taskId && fpsCallback != null) return
+            clearCallback()
+            if (id < 0) return
+
+            val callback = object : TaskFpsCallback() {
+                override fun onFpsReported(fps: Float) {
+                    if (fpsCallback !== this || fps <= 0f) return
+                    synchronized(history) {
+                        currentFps = fps
+                        lastUpdate = SystemClock.elapsedRealtime()
+                        addToHistory(fps)
+                    }
+                }
+            }
+            windowManager.registerTaskFpsCallback(id, context.mainExecutor, callback)
+            fpsCallback = callback
+            taskId = id
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot update FPS callback", e)
+        }
+    }
+
+    private fun clearCallback() {
+        val callback = fpsCallback
+        fpsCallback = null
+        taskId = -1
+        if (callback != null) {
+            try {
+                windowManager.unregisterTaskFpsCallback(callback)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot unregister FPS callback", e)
+            }
+        }
+        clearHistory()
     }
 
     fun getFps(): Float {
-        val method = prefs.getString("game_bar_fps_method", "new")
-        val fps = if (method == "legacy") {
-            readLegacyFps()
-        } else {
-            currentFps
+        if (prefs.getString(FPS_METHOD, "new") == "legacy") {
+            val fps = readLegacyFps()
+            if (fps > 0) synchronized(history) { addToHistory(fps) }
+            return fps
         }
-        
-        // Add to history for legacy method
-        if (method == "legacy" && fps > 0) {
-            synchronized(fpsHistory) {
-                fpsHistory.add(fps)
-                if (fpsHistory.size > maxHistorySize) {
-                    fpsHistory.removeAt(0)
-                }
-            }
-        }
-        
-        return fps
-    }
-    
-    /**
-     * Updates dynamically every frame after initial 100 samples
-     */
-    fun get1PercentLowFps(): Float {
-        synchronized(fpsHistory) {
-            if (fpsHistory.size < 100) return -1f
-            
-            val sorted = fpsHistory.sorted()
-            val index = (sorted.size * 0.01).toInt().coerceAtLeast(0)
-            return sorted[index]
+        return synchronized(history) {
+            if (SystemClock.elapsedRealtime() - lastUpdate > STALENESS_THRESHOLD_MS) -1f
+            else currentFps
         }
     }
-    
-    /**
-     * Updates dynamically every frame after initial 100 samples
-     */
-    fun get01PercentLowFps(): Float {
-        synchronized(fpsHistory) {
-            if (fpsHistory.size < 100) return -1f
-            
-            val sorted = fpsHistory.sorted()
-            val index = (sorted.size * 0.001).toInt().coerceAtLeast(0)
-            return sorted[index]
-        }
+
+    fun getPercentileLows(): Pair<Float, Float> = synchronized(history) {
+        if (history.size < HISTORY_SIZE) return@synchronized -1f to -1f
+        val sorted = history.sorted()
+        sorted[(sorted.size * 0.01).toInt()] to sorted[(sorted.size * 0.001).toInt()]
     }
-    
-    /**
-     * Clear FPS history
-     */
+
     fun clearHistory() {
-        synchronized(fpsHistory) {
-            fpsHistory.clear()
+        synchronized(history) {
+            history.clear()
+            currentFps = -1f
+            lastUpdate = 0L
         }
+    }
+
+    private fun addToHistory(fps: Float) {
+        if (history.size == HISTORY_SIZE) history.removeFirst()
+        history.addLast(fps)
     }
 
     private fun readLegacyFps(): Float {
-        try {
-            BufferedReader(FileReader(GameBarConfig.fpsSysfsPath)).use { br ->
-                val line = br.readLine()
-                if (line != null && line.startsWith("fps:")) {
-                    val parts = line.split("\\s+".toRegex())
-                    if (parts.size >= 2) {
-                        return parts[1].trim().toFloat()
-                    }
-                }
-            }
-        } catch (e: IOException) {
-            // Ignore errors
-        } catch (e: NumberFormatException) {
-            // Ignore errors
-        }
-        return -1f
-    }
-
-    private val taskCheckRunnable = object : Runnable {
-        override fun run() {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val newTaskId = getFocusedTaskId()
-                if (newTaskId > 0 && newTaskId != currentTaskId) {
-                    reinitCallback()
+        val path = GameBarConfig.fpsSysfsPath ?: return -1f
+        return try {
+            File(path).bufferedReader().use { reader ->
+                val line = reader.readLine()
+                if (line?.startsWith("fps:") == true) {
+                    line.split(WHITESPACE).getOrNull(1)?.toFloatOrNull() ?: -1f
                 } else {
-                    val now = System.currentTimeMillis()
-                    if (now - lastFpsUpdateTime > STALENESS_THRESHOLD_MS) {
-                        reinitCallback()
-                    }
-                }
-                handler.postDelayed(this, TASK_CHECK_INTERVAL_MS)
-            }
-        }
-    }
-
-    private fun getFocusedTaskId(): Int {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return -1
-        }
-        try {
-            val atmClass = Class.forName("android.app.ActivityTaskManager")
-            val getServiceMethod = atmClass.getDeclaredMethod("getService")
-            val atmService = getServiceMethod.invoke(null)
-            val getFocusedRootTaskInfoMethod = atmService.javaClass.getMethod("getFocusedRootTaskInfo")
-            val taskInfo = getFocusedRootTaskInfoMethod.invoke(atmService)
-            if (taskInfo != null) {
-                try {
-                    val taskIdField = taskInfo.javaClass.getField("taskId")
-                    return taskIdField.getInt(taskInfo)
-                } catch (nsfe: NoSuchFieldException) {
-                    try {
-                        val taskIdField = taskInfo.javaClass.getField("mTaskId")
-                        return taskIdField.getInt(taskInfo)
-                    } catch (nsfe2: NoSuchFieldException) {
-                        // Both field names failed
-                    }
+                    -1f
                 }
             }
-        } catch (e: Exception) {
-            // Ignore reflection errors
+        } catch (_: IOException) {
+            -1f
         }
-        return -1
-    }
-
-    private fun reinitCallback() {
-        stop()
-        handler.postDelayed({
-            start()
-        }, 500)
     }
 }

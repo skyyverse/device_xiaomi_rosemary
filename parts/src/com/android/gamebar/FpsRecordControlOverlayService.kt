@@ -6,22 +6,26 @@
 package com.android.gamebar
 
 import org.lineageos.settings.R
-import android.animation.ValueAnimator
+import android.app.ActivityTaskManager
 import android.app.Service
+import android.app.TaskStackListener
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.preference.PreferenceManager
@@ -39,7 +43,9 @@ class FpsRecordControlOverlayService : Service() {
         private const val PREF_X = "game_bar_fps_record_control_x"
         private const val PREF_Y = "game_bar_fps_record_control_y"
         private const val SAMPLE_INTERVAL_MS = 1000L
-        private const val MONITOR_INTERVAL_MS = 700L
+        private var samplingRecording = false
+
+        fun isSamplingRecording(): Boolean = samplingRecording
     }
 
     private lateinit var windowManager: WindowManager
@@ -49,39 +55,56 @@ class FpsRecordControlOverlayService : Service() {
 
     private var bubbleView: ImageView? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
-    private var blinkAnimator: ValueAnimator? = null
-
-    @Volatile
     private var isRecording = false
     private var recordingPackage = ""
+    private var samplingThread: HandlerThread? = null
+    private var samplingHandler: Handler? = null
+    private var session = 0
+    private var taskListenerRegistered = false
 
-    private val sampleRunnable = object : Runnable {
-        override fun run() {
-            if (!isRecording) return
-            val pkg = recordingPackage
-            if (pkg.isNotBlank()) {
-                val snapshot = GameBarStatsSampler.capture(this@FpsRecordControlOverlayService, pkg)
-                GameBarStatsSampler.addToExport(this@FpsRecordControlOverlayService, snapshot)
-            }
-            handler.postDelayed(this, SAMPLE_INTERVAL_MS)
+    private val taskManager = ActivityTaskManager.getService()
+    private val sampleRunnable = Runnable { sampleRecording() }
+    private val checkForeground = Runnable {
+        if (isRecording && ForegroundAppDetector.getForegroundPackageName() != recordingPackage) {
+            stopRecording(autoStop = true)
         }
     }
-
-    private val monitorRunnable = object : Runnable {
-        override fun run() {
-            if (!isRecording) return
-            val foreground = ForegroundAppDetector.getForegroundPackageName(this@FpsRecordControlOverlayService)
-            if (foreground != recordingPackage) {
-                stopRecording(autoStop = true)
-                return
-            }
-            handler.postDelayed(this, MONITOR_INTERVAL_MS)
+    private val taskListener = object : TaskStackListener() {
+        override fun onTaskStackChanged() {
+            handler.removeCallbacks(checkForeground)
+            handler.post(checkForeground)
+        }
+    }
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            stopRecording(autoStop = true)
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+    }
+
+    private fun sampleRecording() {
+        val worker = samplingHandler ?: return
+        val activeSession = session
+        val packageName = recordingPackage
+        val logging = GameBarStatsSampler.loggingMetrics(this)
+        worker.post {
+            val snapshot = try {
+                GameBarStatsSampler.capture(this, packageName, logging)
+            } catch (e: RuntimeException) {
+                Log.w("FpsRecordControl", "Cannot sample recording", e)
+                null
+            }
+            handler.post deliver@{
+                if (activeSession != session || !isRecording) return@deliver
+                if (snapshot != null) GameBarStatsSampler.addToExport(snapshot, logging)
+                handler.postDelayed(sampleRunnable, SAMPLE_INTERVAL_MS)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -166,8 +189,6 @@ class FpsRecordControlOverlayService : Service() {
     }
 
     private fun removeBubble() {
-        blinkAnimator?.cancel()
-        blinkAnimator = null
         bubbleView?.let {
             try {
                 windowManager.removeView(it)
@@ -221,27 +242,18 @@ class FpsRecordControlOverlayService : Service() {
     }
 
     private fun toggleRecordingFromBubble() {
-        syncRecordingStateFromManager()
-        if (!isRecording) {
-            startRecording()
-        } else {
+        if (isRecording) stopRecording(autoStop = false)
+        else startRecording()
+    }
+
+    private fun syncRecordingStateFromManager() {
+        if (isRecording && !perAppLogManager.isAppLoggingActive(recordingPackage)) {
             stopRecording(autoStop = false)
         }
     }
 
-    private fun syncRecordingStateFromManager() {
-        val activeApps = perAppLogManager.getCurrentlyLoggingApps()
-        if (activeApps.isNotEmpty()) {
-            isRecording = true
-            recordingPackage = activeApps.first()
-        } else {
-            isRecording = false
-            recordingPackage = ""
-        }
-    }
-
     private fun startRecording() {
-        val currentPackage = ForegroundAppDetector.getForegroundPackageName(this)
+        val currentPackage = ForegroundAppDetector.getForegroundPackageName()
         if (currentPackage.isBlank() || currentPackage == "Unknown" || currentPackage == packageName) {
             Toast.makeText(this, "Open your game first, then start recording", Toast.LENGTH_SHORT).show()
             return
@@ -253,7 +265,6 @@ class FpsRecordControlOverlayService : Service() {
             dataExport.startCapture()
         }
 
-        GameBarFpsMeter.getInstance(this).start()
         perAppLogManager.startManualLoggingForApp(currentPackage)
 
         if (!perAppLogManager.isAppLoggingActive(currentPackage)) {
@@ -262,31 +273,46 @@ class FpsRecordControlOverlayService : Service() {
 
         recordingPackage = currentPackage
         isRecording = true
+        samplingRecording = true
+        GameBarFpsMeter.getInstance(this).start()
+        val thread = HandlerThread("GameBarFpsRecording").apply { start() }
+        samplingThread = thread
+        samplingHandler = Handler(thread.looper)
+        try {
+            taskManager.registerTaskStackListener(taskListener)
+            taskListenerRegistered = true
+        } catch (e: Exception) {
+            Log.w("FpsRecordControl", "Cannot monitor recording task", e)
+        }
         updateBubbleAppearance()
-
-        handler.removeCallbacks(sampleRunnable)
-        handler.removeCallbacks(monitorRunnable)
         handler.post(sampleRunnable)
-        handler.post(monitorRunnable)
     }
 
     private fun stopRecording(autoStop: Boolean) {
         if (!isRecording) return
-
+        session++
         handler.removeCallbacks(sampleRunnable)
-        handler.removeCallbacks(monitorRunnable)
-
-        if (recordingPackage.isNotBlank()) {
-            perAppLogManager.stopManualLoggingForApp(recordingPackage)
+        handler.removeCallbacks(checkForeground)
+        samplingHandler?.removeCallbacksAndMessages(null)
+        samplingThread?.quitSafely()
+        samplingHandler = null
+        samplingThread = null
+        if (taskListenerRegistered) {
+            try {
+                taskManager.unregisterTaskStackListener(taskListener)
+            } catch (e: Exception) {
+                Log.w("FpsRecordControl", "Cannot unregister recording task listener", e)
+            }
+            taskListenerRegistered = false
         }
+
+        perAppLogManager.stopManualLoggingForApp(recordingPackage)
         recordingPackage = ""
         isRecording = false
-
+        samplingRecording = false
+        GameBarFpsMeter.getInstance(this).stop()
         if (perAppLogManager.getCurrentlyLoggingApps().isEmpty()) {
             GameDataExport.getInstance().stopCapture()
-        }
-        if (!GameBar.isShowing()) {
-            GameBarFpsMeter.getInstance(this).stop()
         }
 
         if (autoStop) {
@@ -307,23 +333,10 @@ class FpsRecordControlOverlayService : Service() {
         view.setImageResource(if (isRecording) R.drawable.ic_fps_record_bubble_record else R.drawable.ic_fps_record_bubble_play)
         view.setColorFilter(Color.WHITE)
 
-        blinkAnimator?.cancel()
-        blinkAnimator = null
-        if (isRecording) {
-            blinkAnimator = ValueAnimator.ofFloat(1f, 0.35f).apply {
-                duration = 700L
-                repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.REVERSE
-                interpolator = LinearInterpolator()
-                addUpdateListener { anim -> view.alpha = anim.animatedValue as Float }
-                start()
-            }
-        } else {
-            view.alpha = 1f
-        }
     }
 
     override fun onDestroy() {
+        unregisterReceiver(screenReceiver)
         handler.removeCallbacksAndMessages(null)
         removeBubble()
         stopRecording(autoStop = false)

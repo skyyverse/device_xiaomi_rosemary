@@ -10,15 +10,19 @@ import org.lineageos.settings.R
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.AtomicFile
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import androidx.preference.PreferenceManager
-import java.io.BufferedWriter
 import java.io.File
-import java.io.FileWriter
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.*
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Date
+import java.util.Locale
 
 class PerAppLogManager private constructor() {
 
@@ -63,8 +67,15 @@ class PerAppLogManager private constructor() {
         )
     }
 
-    private val activeLogSessions = ConcurrentHashMap<String, MutableList<Array<String>>>()
-    private val activeLogResolutions = ConcurrentHashMap<String, String>()
+    private data class LogSession(
+        val resolution: Deferred<String>,
+        val rows: ArrayDeque<Array<String>> = ArrayDeque()
+    )
+
+    // Session state is owned by the main thread; the worker receives detached sessions.
+    private val activeLogSessions = mutableMapOf<String, LogSession>()
+    private val resolutionScope = CoroutineScope(Dispatchers.IO)
+    private val exportScope = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
     private val handler = Handler(Looper.getMainLooper())
     private var listener: PerAppStateListener? = null
     private var currentForegroundApp: String? = null
@@ -132,24 +143,8 @@ class PerAppLogManager private constructor() {
         if (activeLogSessions.containsKey(packageName)) return
 
         Log.d(TAG, "Starting logging for app: $packageName")
-        val logData = mutableListOf<Array<String>>()
-        logData.add(CSV_HEADER)
-        activeLogSessions[packageName] = logData
-        
-        Thread {
-            try {
-                val context = android.app.ActivityThread.currentApplication()
-                if (context != null) {
-                    val res = GameResolutionDetector.detectGameRenderResolution(context, packageName)
-                    activeLogResolutions[packageName] = res
-                } else {
-                    activeLogResolutions[packageName] = "Unknown"
-                }
-            } catch (e: Exception) {
-                activeLogResolutions[packageName] = "Unknown"
-            }
-        }.start()
-        
+        activeLogSessions[packageName] = createSession(packageName)
+
         listener?.onAppLoggingStarted(packageName)
         
         // Show toast notification
@@ -173,29 +168,34 @@ class PerAppLogManager private constructor() {
     }
 
     private fun stopLoggingForApp(packageName: String) {
-        val logData = activeLogSessions.remove(packageName)
-        if (logData != null && logData.size > 1) {
-            Log.d(TAG, "Stopping logging for app: $packageName")
-            exportPerAppDataToCsv(packageName, logData)
-            listener?.onAppLoggingStopped(packageName)
-            
-            // Show toast notification
-            handler.post {
-                try {
-                    val context = android.app.ActivityThread.currentApplication()
-                    context?.let {
-                        val pm = it.packageManager
-                        try {
-                            val appInfo = pm.getApplicationInfo(packageName, 0)
-                            val appName = pm.getApplicationLabel(appInfo).toString()
-                            android.widget.Toast.makeText(it, "$appName GameBar log ended", android.widget.Toast.LENGTH_SHORT).show()
-                        } catch (e: Exception) {
-                            android.widget.Toast.makeText(it, "$packageName GameBar log ended", android.widget.Toast.LENGTH_SHORT).show()
-                        }
+        val session = activeLogSessions.remove(packageName) ?: return
+        if (session.rows.isEmpty()) {
+            session.resolution.cancel()
+            return
+        }
+        exportScope.launch {
+            val resolution = session.resolution.await()
+            exportPerAppDataToCsv(packageName, resolution, session.rows)
+        }
+
+        listener?.onAppLoggingStopped(packageName)
+
+        // Show toast notification
+        handler.post {
+            try {
+                val context = android.app.ActivityThread.currentApplication()
+                context?.let {
+                    val pm = it.packageManager
+                    try {
+                        val appInfo = pm.getApplicationInfo(packageName, 0)
+                        val appName = pm.getApplicationLabel(appInfo).toString()
+                        android.widget.Toast.makeText(it, "$appName GameBar log ended", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(it, "$packageName GameBar log ended", android.widget.Toast.LENGTH_SHORT).show()
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to show stop toast for $packageName", e)
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to show stop toast for $packageName", e)
             }
         }
     }
@@ -223,20 +223,8 @@ class PerAppLogManager private constructor() {
         powerWatt: String,
         appRamUsage: String
     ) {
-        val logData = activeLogSessions[packageName] ?: return
-
-        // Prevent unlimited memory growth
-        if (logData.size >= MAX_ROWS_PER_APP) {
-            // Remove oldest entries but keep header
-            if (logData.size > 1) {
-                val toRemove = logData.size / 2
-                repeat(toRemove) {
-                    if (logData.size > 1) {
-                        logData.removeAt(1)
-                    }
-                }
-            }
-        }
+        val rows = activeLogSessions[packageName]?.rows ?: return
+        if (rows.size >= MAX_ROWS_PER_APP) rows.removeFirst()
 
         val row = arrayOf(
             dateTime,
@@ -257,37 +245,47 @@ class PerAppLogManager private constructor() {
             powerWatt,
             appRamUsage
         )
-        logData.add(row)
+        rows.addLast(row)
     }
 
-    private fun exportPerAppDataToCsv(packageName: String, logData: List<Array<String>>) {
-        if (logData.size <= 1) return
+    private fun createSession(packageName: String): LogSession {
+        return LogSession(resolutionScope.async {
+            val context = android.app.ActivityThread.currentApplication()
+            if (context == null) "Unknown"
+            else GameResolutionDetector.detectGameRenderResolution(context, packageName)
+        })
+    }
 
-        val resolution = activeLogResolutions.remove(packageName) ?: "Unknown"
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "${packageName}_GameBar_log_${resolution}_$timeStamp.csv"
-        val outFile = File(getLogsDirectory(), fileName)
+    private fun exportPerAppDataToCsv(
+        packageName: String,
+        resolution: String,
+        rows: List<Array<String>>
+    ) {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
+        val name = "${packageName}_GameBar_log_${resolution}"
+        val directory = getLogsDirectory()
+        var outFile = File(directory, "${name}_$timestamp.csv")
+        var duplicate = 1
+        while (outFile.exists()) {
+            outFile = File(directory, "${name}_${duplicate++}_$timestamp.csv")
+        }
 
-        var bw: BufferedWriter? = null
+        val file = AtomicFile(outFile)
         try {
-            bw = BufferedWriter(FileWriter(outFile, false))
-            for (row in logData) {
-                bw.write(toCsvLine(row))
-                bw.newLine()
+            val stream = file.startWrite()
+            try {
+                val writer = stream.bufferedWriter()
+                writer.appendLine(CSV_HEADER.joinToString(","))
+                rows.forEach { writer.appendLine(it.joinToString(",")) }
+                writer.flush()
+                file.finishWrite(stream)
+            } catch (e: IOException) {
+                file.failWrite(stream)
+                throw e
             }
-            bw.flush()
-            Log.d(TAG, "Exported per-app log for $packageName to ${outFile.absolutePath}")
         } catch (e: IOException) {
             Log.e(TAG, "Failed to export per-app log for $packageName", e)
-        } finally {
-            bw?.let {
-                try { it.close() } catch (ignored: IOException) {}
-            }
         }
-    }
-
-    private fun toCsvLine(columns: Array<String>): String {
-        return columns.joinToString(",")
     }
 
     fun getPerAppLogFiles(packageName: String): List<File> {
@@ -338,24 +336,8 @@ class PerAppLogManager private constructor() {
         }
 
         Log.d(TAG, "Starting manual logging for app: $packageName")
-        val logData = mutableListOf<Array<String>>()
-        logData.add(CSV_HEADER)
-        activeLogSessions[packageName] = logData
-        
-        Thread {
-            try {
-                val context = android.app.ActivityThread.currentApplication()
-                if (context != null) {
-                    val res = GameResolutionDetector.detectGameRenderResolution(context, packageName)
-                    activeLogResolutions[packageName] = res
-                } else {
-                    activeLogResolutions[packageName] = "Unknown"
-                }
-            } catch (e: Exception) {
-                activeLogResolutions[packageName] = "Unknown"
-            }
-        }.start()
-        
+        activeLogSessions[packageName] = createSession(packageName)
+
         listener?.onAppLoggingStarted(packageName)
         
         // Show toast notification
@@ -394,7 +376,7 @@ class PerAppLogManager private constructor() {
     
     fun handlePerAppLoggingStarted(context: Context) {
         // When per-app logging is started, check if current foreground app should be logged
-        val foregroundApp = ForegroundAppDetector.getForegroundPackageName(context)
+        val foregroundApp = ForegroundAppDetector.getForegroundPackageName()
         if (foregroundApp != "Unknown" && foregroundApp.isNotEmpty()) {
             currentForegroundApp = foregroundApp
             if (isAppLoggingEnabled(context, foregroundApp)) {

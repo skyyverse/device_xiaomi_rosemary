@@ -6,30 +6,24 @@
 package com.android.gamebar
 
 import android.content.Context
-import android.util.Log
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import kotlin.math.max
 import kotlin.math.min
 
 object GameResolutionDetector {
-    private const val TAG = "GameResolutionDetector"
+    private val gfxSizePattern = Regex("""(\d+)\s*\(\s*\d+\s*\)\s*x\s*(\d+)""")
+    private val surfaceSizePattern = Regex("""w/h:(\d+)x(\d+)""")
 
     fun detectGameRenderResolution(context: Context, packageName: String): String {
         val metrics = context.resources.displayMetrics
         val fallback = "${metrics.widthPixels}x${metrics.heightPixels}"
         return runCatching {
-            val process = Runtime.getRuntime().exec(arrayOf("dumpsys", "gfxinfo", packageName))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val content = reader.readText()
-            process.waitFor()
-            
+            val content = readDump("gfxinfo", packageName)
+
             if (content.isBlank()) {
                 return@runCatching detectRenderResolutionFromSurfaceFlinger(packageName) ?: fallback
             }
 
-            val regex = Regex("""(\d+)\s*\(\s*\d+\s*\)\s*x\s*(\d+)""")
-            val matches = regex.findAll(content)
+            val matches = gfxSizePattern.findAll(content)
                 .mapNotNull { match ->
                     val w = match.groupValues[1].toIntOrNull()
                     val h = match.groupValues[2].toIntOrNull()
@@ -53,11 +47,8 @@ object GameResolutionDetector {
 
     private fun detectRenderResolutionFromSurfaceFlinger(packageName: String): String? {
         return runCatching {
-            val process = Runtime.getRuntime().exec(arrayOf("dumpsys", "SurfaceFlinger", "--layers"))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val out = reader.readText()
-            process.waitFor()
-            
+            val out = readDump("SurfaceFlinger", "--layers")
+
             if (out.isBlank()) return@runCatching null
 
             val lines = out.lineSequence()
@@ -68,9 +59,8 @@ object GameResolutionDetector {
                 .toList()
             if (lines.isEmpty()) return@runCatching null
 
-            val regex = Regex("""w/h:(\d+)x(\d+)""")
             val match = lines.asSequence()
-                .mapNotNull { line -> regex.find(line) }
+                .mapNotNull { line -> surfaceSizePattern.find(line) }
                 .firstOrNull()
                 ?: return@runCatching null
             val w = match.groupValues[1].toIntOrNull() ?: return@runCatching null
@@ -78,5 +68,20 @@ object GameResolutionDetector {
             if (w <= 0 || h <= 0) return@runCatching null
             "${w}x${h}"
         }.getOrNull()
+    }
+    private fun readDump(vararg args: String): String {
+        val process = ProcessBuilder(listOf("dumpsys") + args)
+            .redirectErrorStream(true)
+            .start()
+        try {
+            process.outputStream.close()
+            return process.inputStream.bufferedReader().use { reader ->
+                val output = reader.readText()
+                if (process.waitFor() == 0) output else ""
+            }
+        } finally {
+            process.errorStream.close()
+            process.destroy()
+        }
     }
 }

@@ -7,12 +7,15 @@
 package com.android.gamebar
 
 import java.io.BufferedReader
+import java.io.File
 import java.io.FileReader
 import java.io.IOException
 
 import java.util.Locale
 
 object GameBarMemInfo {
+
+    private val whitespace = Regex("\\s+")
 
     fun getRamUsage(): String {
         var memTotal = 0L
@@ -47,7 +50,7 @@ object GameBarMemInfo {
     }
 
     private fun parseMemValue(line: String): Long {
-        val parts = line.split("\\s+".toRegex())
+        val parts = line.split(whitespace)
         if (parts.size < 3) {
             return 0L
         }
@@ -59,45 +62,26 @@ object GameBarMemInfo {
     }
 
     fun getRamSpeed(): String {
-        try {
-            BufferedReader(FileReader(GameBarConfig.ramFreqPath)).use { br ->
-                val line = br.readLine()
-                if (!line.isNullOrEmpty()) {
-                    try {
-                        val khz = line.trim().toInt()
-                        val mhz = khz / 1000f
-                        return if (mhz >= 1000) {
-                            String.format("%.3f GHz", mhz / 1000f)
-                        } else {
-                            String.format("%.0f MHz", mhz)
-                        }
-                    } catch (ignored: NumberFormatException) {
-                    }
-                }
-            }
-        } catch (e: IOException) {
-            // ignore
+        val path = GameBarConfig.ramFreqPath ?: return "N/A"
+        return try {
+            val rate = File(path).bufferedReader().use { it.readLine() }
+                ?.substringAfter('=')?.trim()?.toIntOrNull() ?: return "N/A"
+            "$rate MT/s"
+        } catch (_: IOException) {
+            "N/A"
         }
-        return "N/A"
     }
 
     fun getRamTemp(): String {
-        try {
-            BufferedReader(FileReader(GameBarConfig.ramTempPath)).use { br ->
-                val line = br.readLine()
-                if (!line.isNullOrEmpty()) {
-                    try {
-                        val raw = line.trim().toInt()
-                        val celsius = raw / GameBarConfig.ramTempDivider.toFloat()
-                        return String.format("%.1f°C", celsius)
-                    } catch (ignored: NumberFormatException) {
-                    }
-                }
-            }
-        } catch (e: IOException) {
-            // ignore
+        val (path, divider) = GameBarConfig.getRamTempConfig()
+        if (path == null) return "N/A"
+        return try {
+            val raw = File(path).bufferedReader().use { it.readLine() }?.trim()?.toIntOrNull()
+                ?: return "N/A"
+            String.format(Locale.getDefault(), "%.1f°C", raw / divider.toFloat())
+        } catch (_: IOException) {
+            "N/A"
         }
-        return "N/A"
     }
 
     fun getAppRamUsage(context: android.content.Context, packageName: String): String {

@@ -14,13 +14,21 @@ import java.util.*
 
 object GameBarCpuInfo {
 
+    private val whitespace = Regex("\\s+")
+    private val cpuFolderName = Regex("cpu\\d+")
+    private val cpuFolders by lazy {
+        GameBarConfig.cpuBasePath?.let(::File)?.listFiles { _, name -> cpuFolderName.matches(name) }
+            ?.sortedBy(::extractCpuNumber).orEmpty()
+    }
+
     private var prevIdle = -1L
     private var prevTotal = -1L
 
+    @Synchronized
     fun getCpuUsage(): String {
         val line = readLine(GameBarConfig.procStatPath)
         if (line == null || !line.startsWith("cpu ")) return "N/A"
-        val parts = line.split("\\s+".toRegex())
+        val parts = line.split(whitespace)
         if (parts.size < 8) return "N/A"
 
         return try {
@@ -54,20 +62,6 @@ object GameBarCpuInfo {
 
     fun getCpuFrequencies(): List<String> {
         val result = mutableListOf<String>()
-        val basePath = GameBarConfig.cpuBasePath
-        if (basePath == null) {
-            return result
-        }
-
-        val cpuDir = File(basePath)
-        val files = cpuDir.listFiles { _, name -> name.matches(Regex("cpu\\d+")) }
-        if (files.isNullOrEmpty()) {
-            return result
-        }
-
-        val cpuFolders = files.toMutableList()
-        cpuFolders.sortBy { extractCpuNumber(it) }
-
         for (cpu in cpuFolders) {
             val freqPath = "${cpu.absolutePath}/cpufreq/scaling_cur_freq"
             val freqStr = readLine(freqPath)

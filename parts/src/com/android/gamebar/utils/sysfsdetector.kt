@@ -28,13 +28,14 @@ object SysfsDetector {
      * @param path The sysfs path to analyze
      * @return The appropriate divider value (1000, 100, 10, or 1)
      */
-    fun detectTemperatureDivider(path: String): Int {
-        return try {
+    @Synchronized
+    fun detectTemperatureDivider(path: String): Int = detectedDividers.getOrPut(path) {
+        try {
             val file = File(path)
-            if (!file.exists() || !file.canRead()) return 1000 //by default
+            if (!file.exists() || !file.canRead()) return@getOrPut 1000
 
             val content = file.readText().trim()
-            if (content.isEmpty()) return 1000
+            if (content.isEmpty()) return@getOrPut 1000
 
             val rawValue = content.toInt()
 
@@ -58,19 +59,11 @@ object SysfsDetector {
     /**
      * Detects path and divider for battery temperature
      */
-    fun getBatteryTempInfo(): Pair<String?, Int> {
-        val path = getBatteryTempPath()
-        if (path == null) return Pair(null, 1000)
-        
-        if (detectedDividers.containsKey("battery_temp")) {
-            return Pair(path, detectedDividers["battery_temp"]!!)
-        }
-        
-        // Detectar divisor automáticamente
-        val divider = detectTemperatureDivider(path)
-        detectedDividers["battery_temp"] = divider
-        return Pair(path, divider)
-    }
+    @Synchronized
+    fun getBatteryTempInfo(): Pair<String?, Int> = temperatureInfo(getBatteryTempPath())
+
+    private fun temperatureInfo(path: String?): Pair<String?, Int> =
+        path to (path?.let(::detectTemperatureDivider) ?: 1000)
 
     /**
      * Dynamically searches for CPU temperature node with type-based prioritization
@@ -80,7 +73,7 @@ object SysfsDetector {
      */
     private fun findCpuTempPath(): String? {
         // Return cached path if available
-        detectedPaths["cpu_temp"]?.let { return it }
+        if (detectedPaths.containsKey("cpu_temp")) return detectedPaths["cpu_temp"]
 
         val thermalBaseDirs = arrayOf(
             "/sys/class/thermal",
@@ -172,20 +165,8 @@ object SysfsDetector {
      * 
      * @return Pair containing path and divider, or (null, 1000) if not found
      */
-    fun getCpuTempInfo(): Pair<String?, Int> {
-        val path = getCpuTempPath()
-        if (path == null) return Pair(null, 1000)
-
-        // Return cached divider if available
-        if (detectedDividers.containsKey("cpu_temp")) {
-            return Pair(path, detectedDividers["cpu_temp"]!!)
-        }
-
-        // Auto-detect divider and cache it
-        val divider = detectTemperatureDivider(path)
-        detectedDividers["cpu_temp"] = divider
-        return Pair(path, divider)
-    }
+    @Synchronized
+    fun getCpuTempInfo(): Pair<String?, Int> = temperatureInfo(getCpuTempPath())
 
     // Possible paths for each hardware component
     private val BATTERY_TEMP_PATHS = arrayOf(
@@ -211,7 +192,7 @@ object SysfsDetector {
      */
     private fun detectPath(pathType: String, possiblePaths: Array<String>): String? {
         // Check cache first
-        detectedPaths[pathType]?.let { return it }
+        if (detectedPaths.containsKey(pathType)) return detectedPaths[pathType]
         
         for (path in possiblePaths) {
             val file = File(path)
@@ -255,70 +236,43 @@ object SysfsDetector {
         return null
     }
 
-    /** @return GPU temperature sysfs path and divider based on KGSL or generic thermal zones */
-    fun getGpuTempInfo(): Pair<String?, Int> {
-        if (detectedPaths.containsKey("gpu_temp")) {
-            val path = detectedPaths["gpu_temp"]
-            val divider = detectedDividers["gpu_temp"] ?: 1000
-            return Pair(path, divider)
-        }
+    @Synchronized
+    fun getGpuTempInfo(): Pair<String?, Int> =
+        temperatureInfo(detectedPaths.getOrPutNullable("gpu_temp") {
+            findThermalZonePath("gpuss-0", "gpu", "gpuss", "mtktsg")
+        })
 
-        // Always try standard kgsl direct path first
-        var path: String? = "/sys/class/kgsl/kgsl-3d0/temp"
-        val kgslFile = File(path!!)
-        if (!kgslFile.exists() || !kgslFile.canRead()) {
-            // Fallback to standard thermal zones typical of qualcomm/mediatek GPUs
-            path = findThermalZonePath("gpuss-0", "gpu", "gpuss")
-        }
+    @Synchronized
+    fun getRamTempInfo(): Pair<String?, Int> =
+        temperatureInfo(detectedPaths.getOrPutNullable("ram_temp") {
+            findThermalZonePath("ddr", "ram", "mch", "pop")
+        })
 
-        if (path != null) {
-            val file = File(path)
-            if (file.exists() && file.canRead()) {
-                val divider = detectTemperatureDivider(path)
-                detectedPaths["gpu_temp"] = path
-                detectedDividers["gpu_temp"] = divider
-                return Pair(path, divider)
-            }
-        }
-        
-        return Pair(null, 1000)
-    }
-
-    /** @return RAM/Memory temperature sysfs path and divider */
-    fun getRamTempInfo(): Pair<String?, Int> {
-        if (detectedPaths.containsKey("ram_temp")) {
-            val path = detectedPaths["ram_temp"]
-            val divider = detectedDividers["ram_temp"] ?: 1000
-            return Pair(path, divider)
-        }
-
-        // Dynamically find RAM thermal zone
-        val path = findThermalZonePath("ddr", "ram", "mch", "pop")
-        if (path != null) {
-            val file = File(path)
-            if (file.exists() && file.canRead()) {
-                val divider = detectTemperatureDivider(path)
-                detectedPaths["ram_temp"] = path
-                detectedDividers["ram_temp"] = divider
-                return Pair(path, divider)
-            }
-        }
-        return Pair(null, 1000)
+    private fun MutableMap<String, String?>.getOrPutNullable(
+        key: String,
+        detect: () -> String?
+    ): String? {
+        if (!containsKey(key)) put(key, detect())
+        return get(key)
     }
 
     // Public API for each hardware component
     
+    @Synchronized
     fun getFpsPath(): String? = detectPath("fps", FPS_PATHS)
     
+    @Synchronized
     fun getBatteryTempPath(): String? = detectPath("battery_temp", BATTERY_TEMP_PATHS)
 
     /** @return CPU temperature sysfs path or null if not supported */
+    @Synchronized
     fun getCpuTempPath(): String? = findCpuTempPath()
 
     /** @return CPU base sysfs path*/
+    @Synchronized
     fun getCpuBasePath(): String? {
         // Check cache first
-        detectedPaths["cpu_base"]?.let { return it }
+        if (detectedPaths.containsKey("cpu_base")) return detectedPaths["cpu_base"]
         
         val path = "/sys/devices/system/cpu"
         val file = File(path)
@@ -336,8 +290,10 @@ object SysfsDetector {
     /**
      * Clear cache and re-detect all paths (useful for debugging)
      */
+    @Synchronized
     fun resetDetection() {
         detectedPaths.clear()
+        detectedDividers.clear()
         Log.d(TAG, "Sysfs detection cache cleared")
     }
     
