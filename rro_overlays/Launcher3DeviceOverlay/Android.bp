@@ -11,5 +11,6 @@ runtime_resource_overlay {
 runtime_resource_overlay {
     name: "NexusLauncherDeviceOverlay",
     manifest: "AndroidManifestNexusLauncher.xml",
+    resource_dirs: ["res-nexus"],
     vendor: true,
 }
