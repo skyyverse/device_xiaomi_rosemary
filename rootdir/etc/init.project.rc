@@ -1,5 +1,4 @@
 # MTK project .rc configure
-import init.mi_thermald.rc
 
 on init
     mkdir /mnt/media_rw/usbotg 0700 media_rw media_rw
@@ -80,11 +79,16 @@ on init
     #
     # export SECONDARY_STORAGE /storage/sdcard1
 
-#add thermal tactics
-on  property:vendor.camera.boost.en=1
+# Camera capture takes priority over XiaomiParts. Restore the requested profile
+# when the camera HAL releases its boost.
+on property:vendor.camera.boost.en=1
     write /sys/class/thermal/thermal_message/sconfig 12
-on  property:vendor.camera.boost.en=0
-    write /sys/class/thermal/thermal_message/sconfig 17
+
+on property:vendor.camera.boost.en=0
+    write /sys/class/thermal/thermal_message/sconfig ${sys.rosemary.thermal.profile:-17}
+
+on property:sys.rosemary.thermal.profile=* && property:vendor.camera.boost.en=0
+    write /sys/class/thermal/thermal_message/sconfig ${sys.rosemary.thermal.profile}
 
 # 20220922 ODM-RT yingjun add RPMB and cpuid for selinux
 on property:sys.boot_completed=1 && property:vendor.sys.rpmb_state=*

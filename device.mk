@@ -304,7 +304,6 @@ PRODUCT_PACKAGES += \
     chipinfo \
     fstab.mt6785 \
     fstab.mt6785.ramdisk \
-    init.ago.rc \
     init.connectivity.rc \
     init.modem.rc \
     init.mt6785.rc \
