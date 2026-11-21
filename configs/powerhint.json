@@ -114,8 +114,7 @@
       "Values": [
         "100",
         "75",
-        "50",
-        "0"
+        "50"
       ],
       "DefaultIndex": 0,
       "ResetOnInit": true
@@ -166,9 +165,12 @@
       "Name": "GPUMinFreq",
       "Path": "/sys/kernel/ged/hal/custom_boost_gpu_freq",
       "Values": [
-        "0",
-        "2"
+        "42",
+        "20",
+        "10",
+        "0"
       ],
+      "DefaultIndex": 0,
       "ResetOnInit": true
     },
     {
@@ -202,13 +204,13 @@
     {
       "PowerHint": "INTERACTION",
       "Node": "CPULittleClusterMinFreq",
-      "Duration": 58,
+      "Duration": 0,
       "Value": "1275000"
     },
     {
       "PowerHint": "INTERACTION",
       "Node": "CPUBigClusterMinFreq",
-      "Duration": 58,
+      "Duration": 0,
       "Value": "1169000"
     },
     {
@@ -220,8 +222,14 @@
     {
       "PowerHint": "INTERACTION",
       "Node": "UclampFGMin",
-      "Duration": 58,
+      "Duration": 0,
       "Value": "15"
+    },
+    {
+      "PowerHint": "INTERACTION",
+      "Node": "UclampTAMin",
+      "Duration": 0,
+      "Value": "30"
     },
     {
       "PowerHint": "LAUNCH",
@@ -256,25 +264,25 @@
       "PowerHint": "EXPENSIVE_RENDERING",
       "Node": "GPUSchedPeriod",
       "Duration": 0,
-      "Value": "100"
+      "Value": "50"
     },
     {
       "PowerHint": "EXPENSIVE_RENDERING",
       "Node": "GPUDVFSInterval",
       "Duration": 0,
-      "Value": "75"
+      "Value": "50"
     },
     {
       "PowerHint": "EXPENSIVE_RENDERING",
       "Node": "GPUSchedMode",
       "Duration": 0,
-      "Value": "1"
+      "Value": "0"
     },
     {
       "PowerHint": "EXPENSIVE_RENDERING",
       "Node": "GPUMinFreq",
       "Duration": 0,
-      "Value": "0"
+      "Value": "20"
     },
     {
       "PowerHint": "DOUBLE_TAP_TO_WAKE",

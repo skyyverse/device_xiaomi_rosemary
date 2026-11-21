@@ -63,3 +63,6 @@ genfscon sysfs /devices/platform/battery/power_supply/bms/wakeup 								u:objec
 genfscon sysfs /devices/platform/maxim_ds28e16/power_supply/batt_verify/wakeup 							u:object_r:sysfs_wakeup:s0
 genfscon sysfs /devices/platform/mt_charger/power_supply/main/wakeup 								u:object_r:sysfs_wakeup:s0
 genfscon sysfs /devices/platform/usb0/wakeup 											u:object_r:sysfs_wakeup:s0
+
+# Display idle notification
+genfscon sysfs /devices/platform/mtkfb/graphics/fb0/idle_state u:object_r:vendor_sysfs_display_idle:s0
