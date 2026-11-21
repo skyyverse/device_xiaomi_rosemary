@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdint.h>
 #include <sys/sysinfo.h>
 #include <libinit_utils.h>
 
@@ -17,6 +18,15 @@
 #define HEAPTARGETUTILIZATION_PROP "dalvik.vm.heaptargetutilization"
 
 #define GB(b) (b * 1024ull * 1024 * 1024)
+
+static const dalvik_heap_info_t dalvik_heap_info_8192 = {
+    .heapstartsize = "16m",
+    .heapgrowthlimit = "256m",
+    .heapsize = "512m",
+    .heapminfree = "8m",
+    .heapmaxfree = "48m",
+    .heaptargetutilization = "0.5",
+};
 
 static const dalvik_heap_info_t dalvik_heap_info_6144 = {
     .heapstartsize = "16m",
@@ -46,14 +56,15 @@ static const dalvik_heap_info_t dalvik_heap_info_2048 = {
 };
 
 void set_dalvik_heap() {
-    struct sysinfo sys;
+    struct sysinfo sys = {};
+    const auto ram = sysinfo(&sys) == 0 ? static_cast<uint64_t>(sys.totalram) * sys.mem_unit : GB(4);
     const dalvik_heap_info_t *dhi;
 
-    sysinfo(&sys);
-
-    if (sys.totalram > GB(5))
+    if (ram > GB(7))
+        dhi = &dalvik_heap_info_8192;
+    else if (ram > GB(5))
         dhi = &dalvik_heap_info_6144;
-    else if (sys.totalram > GB(3))
+    else if (ram > GB(3))
         dhi = &dalvik_heap_info_4096;
     else
         dhi = &dalvik_heap_info_2048;
@@ -64,4 +75,11 @@ void set_dalvik_heap() {
     property_override(HEAPTARGETUTILIZATION_PROP, dhi->heaptargetutilization);
     property_override(HEAPMINFREE_PROP, dhi->heapminfree);
     property_override(HEAPMAXFREE_PROP, dhi->heapmaxfree);
+
+    property_override("ro.lmk.thrashing_limit", ram > GB(5) ? "55" : "30", true);
+    property_override("ro.lmk.swap_free_low_percentage", ram > GB(5) ? "15" : "20", true);
+    property_override("dalvik.vm.dex2oat-threads", "6", true);
+    property_override("dalvik.vm.dex2oat-cpu-set", "0,1,2,3,4,5", true);
+    property_override("dalvik.vm.background-dex2oat-threads", "4", true);
+    property_override("dalvik.vm.background-dex2oat-cpu-set", "0,1,2,3", true);
 }

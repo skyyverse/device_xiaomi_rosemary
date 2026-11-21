@@ -4,7 +4,11 @@
       "Name": "CPU",
       "Type": "CPU",
       "ZoneName": "mtktscpu",
-      "HotThreshold": ["NaN", "NaN", "NaN", 85, 90, 100, 117],
+      "HotThreshold": [65, 72, 80, 85, 90, 100, 117],
+      "HotHysteresis": [0, 3, 3, 3, 3, 3, 3],
+      "SendCallback": true,
+      "PollingDelay": 5000,
+      "PassiveDelay": 7000,
       "VrThreshold": "85.0",
       "Multiplier": 0.001
     },
@@ -12,28 +16,41 @@
       "Name": "GPU",
       "Type": "GPU",
       "ZoneName": "mtktscpu",
-      "HotThreshold": ["NaN", "NaN", "NaN", 85, 90, 100, 117],
+      "HotThreshold": [65, 72, 80, 85, 90, 100, 117],
+      "HotHysteresis": [0, 3, 3, 3, 3, 3, 3],
+      "SendCallback": true,
+      "PollingDelay": 5000,
+      "PassiveDelay": 7000,
       "VrThreshold": "85.0",
       "Multiplier": 0.001
     },
     {
       "Name": "mtktsbattery",
       "Type": "BATTERY",
-      "HotThreshold": ["NaN", "NaN", "NaN", 50, 55, 59, 60],
+      "HotThreshold": [40, 43, 46, 50, 55, 59, 60],
+      "HotHysteresis": [0, 2, 2, 2, 2, 2, 2],
+      "SendCallback": true,
+      "PollingDelay": 5000,
+      "PassiveDelay": 7000,
       "VrThreshold": "50.0",
       "Multiplier": 0.001
     },
     {
       "Name": "mtktsAP",
       "Type": "SKIN",
-      "HotThreshold": ["NaN", "NaN", "NaN", 50, 70, 80, 90],
+      "HotThreshold": [39, 42, 45, 50, 70, 80, 90],
+      "HotHysteresis": [0, 2, 2, 2, 2, 2, 2],
+      "SendCallback": true,
+      "PollingDelay": 5000,
+      "PassiveDelay": 7000,
       "VrThreshold": "50.0",
       "Multiplier": 0.001
     },
     {
       "Name": "mtktsbtsmdpa",
       "Type": "POWER_AMPLIFIER",
-      "HotThreshold": ["NaN", "NaN", "NaN", 68, 90, 100, 110],
+      "HotThreshold": [50, 55, 60, 68, 90, 100, 110],
+      "HotHysteresis": [0, 3, 3, 3, 3, 3, 3],
       "VrThreshold": "NaN",
       "Multiplier": 0.001
     },
@@ -41,7 +58,8 @@
       "Name": "NPU",
       "Type": "NPU",
       "ZoneName": "mtktscpu",
-      "HotThreshold": ["NaN", "NaN", "NaN", 85, 90, 100, 117],
+      "HotThreshold": [65, 72, 80, 85, 90, 100, 117],
+      "HotHysteresis": [0, 3, 3, 3, 3, 3, 3],
       "VrThreshold": "NaN",
       "Multiplier": 0.001
     }
