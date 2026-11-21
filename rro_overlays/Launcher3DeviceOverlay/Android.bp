@@ -7,3 +7,9 @@ runtime_resource_overlay {
     name: "Launcher3DeviceOverlay",
     vendor: true,
 }
+
+runtime_resource_overlay {
+    name: "NexusLauncherDeviceOverlay",
+    manifest: "AndroidManifestNexusLauncher.xml",
+    vendor: true,
+}

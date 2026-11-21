@@ -5,5 +5,4 @@
 -->
 <resources>
     <!-- Default for Settings.Global.DISABLE_WINDOW_BLURS -->
-    <integer name="def_disable_window_blurs">1</integer>
 </resources>
