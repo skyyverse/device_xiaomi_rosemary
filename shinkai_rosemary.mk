@@ -20,6 +20,9 @@ PRODUCT_MANUFACTURER := Xiaomi
 PRODUCT_BRAND := Redmi
 PRODUCT_MODEL := M2101K7BNY
 
+# The MT6785 4.19 kernel lacks userfaultfd write protection.
+PRODUCT_ENABLE_UFFD_GC := false
+
 SHINKAI_MAINTAINER := Mnskkyy
 
 PRODUCT_SYSTEM_NAME := rosemary_global
