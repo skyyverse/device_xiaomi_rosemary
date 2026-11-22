@@ -246,7 +246,7 @@
          This array should be equal in size to config_screenBrightnessBacklight -->
     <array name="config_screenBrightnessNits">
         <item>4</item>    <!-- index 1 -->
-        <item>450</item>  <!-- index 2 -->
+        <item>500</item>  <!-- index 2 -->
     </array>
 
     <!-- Screen brightness used to dim the screen when the user activity
@@ -332,9 +332,6 @@
 
     <!-- Flag specifying whether VoLTE TTY is supported -->
     <bool name="config_carrier_volte_tty_supported">true</bool>
-
-    <!-- Should the pinner service pin the Home application? -->
-    <bool name="config_pinnerHomeApp">true</bool>
 
     <!-- Enable Zram writeback feature to allow unused pages in zram be written to flash. -->
     <bool name="config_zramWriteback">false</bool>
