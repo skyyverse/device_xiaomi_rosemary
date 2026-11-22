@@ -30,20 +30,16 @@ static constexpr char index_node[] = "/sys/devices/platform/aw8622/index";
 
 // Define durations for waveforms
 static constexpr uint32_t WAVEFORM_TICK_EFFECT_MS = 10;
-static constexpr uint32_t WAVEFORM_TEXTURE_TICK_EFFECT_MS = 20;
-static constexpr uint32_t WAVEFORM_CLICK_EFFECT_MS = 15;
+static constexpr uint32_t WAVEFORM_TEXTURE_TICK_EFFECT_MS = 15;
+static constexpr uint32_t WAVEFORM_CLICK_EFFECT_MS = 20;
 static constexpr uint32_t WAVEFORM_HEAVY_CLICK_EFFECT_MS = 30;
-static constexpr uint32_t WAVEFORM_DOUBLE_CLICK_EFFECT_MS = 60;
 static constexpr uint32_t WAVEFORM_THUD_EFFECT_MS = 35;
-static constexpr uint32_t WAVEFORM_POP_EFFECT_MS = 15;
+static constexpr uint32_t WAVEFORM_POP_EFFECT_MS = 20;
 
-// Select waveform index from firmware through index list
-static constexpr uint32_t WAVEFORM_TICK_EFFECT_INDEX = 1;
-static constexpr uint32_t WAVEFORM_TEXTURE_TICK_EFFECT_INDEX = 4;
-static constexpr uint32_t WAVEFORM_CLICK_EFFECT_INDEX = 2;
-static constexpr uint32_t WAVEFORM_HEAVY_CLICK_EFFECT_INDEX = 5;
-static constexpr uint32_t WAVEFORM_DOUBLE_CLICK_EFFECT_INDEX = 6;
-static constexpr uint32_t WAVEFORM_THUD_EFFECT_INDEX = 7;
+// Select short-shock waveform index from aw8622 firmware (1=Q_cfg, 2=M_cfg, 3=Z_cfg)
+static constexpr uint32_t WAVEFORM_LIGHT_SHORT_INDEX = 1;
+static constexpr uint32_t WAVEFORM_MEDIUM_SHORT_INDEX = 2;
+static constexpr uint32_t WAVEFORM_HEAVY_SHORT_INDEX = 3;
 
 class Vibrator : public BnVibrator {
     ndk::ScopedAStatus getCapabilities(int32_t* _aidl_return) override;
@@ -56,8 +52,8 @@ class Vibrator : public BnVibrator {
     ndk::ScopedAStatus getSupportedEffects(std::vector<Effect>* _aidl_return) override;
     ndk::ScopedAStatus setAmplitude(float amplitude) override;
     ndk::ScopedAStatus setExternalControl(bool enabled) override;
-    ndk::ScopedAStatus getCompositionDelayMax(int32_t* maxDelayMs);
-    ndk::ScopedAStatus getCompositionSizeMax(int32_t* maxSize);
+    ndk::ScopedAStatus getCompositionDelayMax(int32_t* maxDelayMs) override;
+    ndk::ScopedAStatus getCompositionSizeMax(int32_t* maxSize) override;
     ndk::ScopedAStatus getSupportedPrimitives(std::vector<CompositePrimitive>* supported) override;
     ndk::ScopedAStatus getPrimitiveDuration(CompositePrimitive primitive,
                                             int32_t* durationMs) override;

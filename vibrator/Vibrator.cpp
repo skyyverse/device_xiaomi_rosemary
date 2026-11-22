@@ -8,6 +8,7 @@
 
 #include "vibrator-impl/Vibrator.h"
 
+#include <algorithm>
 #include <android-base/logging.h>
 #include <fstream>
 
@@ -17,10 +18,20 @@ namespace hardware {
 namespace vibrator {
 
 template <typename T>
-static void write_haptic_node(const std::string& path, const T& value) {
+static bool write_haptic_node(const std::string& path, const T& value) {
     std::ofstream file(path);
+    if (!file.is_open()) {
+        LOG(ERROR) << "Failed to open haptic node: " << path;
+        return false;
+    }
     file << value;
- }
+    file.flush();
+    if (!file.good()) {
+        LOG(ERROR) << "Failed to write haptic node: " << path;
+        return false;
+    }
+    return true;
+}
 
 ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
     LOG(INFO) << "Vibrator reporting capabilities";
@@ -31,24 +42,50 @@ ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
 ndk::ScopedAStatus Vibrator::off() {
     LOG(INFO) << "Vibrator off";
     /* Reset index before triggering another set of haptics */
-    write_haptic_node(index_node, 0);
-    write_haptic_node(activate_node, 0);
+    if (!write_haptic_node(index_node, 0) || !write_haptic_node(activate_node, 0)) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_TRANSACTION_FAILED);
+    }
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
                                 const std::shared_ptr<IVibratorCallback>& callback) {
+    if (callback != nullptr) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
+    if (timeoutMs <= 0) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+    }
     LOG(INFO) << "Vibrator on for timeoutMs: " << timeoutMs;
-    write_haptic_node(duration_node, timeoutMs);
-    write_haptic_node(activate_node, 1);
+    if (!write_haptic_node(duration_node, timeoutMs) || !write_haptic_node(activate_node, 1)) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_TRANSACTION_FAILED);
+    }
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
                                      const std::shared_ptr<IVibratorCallback>& callback,
                                      int32_t* _aidl_return) {
-    ndk::ScopedAStatus status;
-    uint32_t index = 0;
+    if (callback != nullptr) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
+
+    int32_t strengthOffset = 0;
+    switch (strength) {
+        case EffectStrength::LIGHT:
+            strengthOffset = -1;
+            break;
+        case EffectStrength::MEDIUM:
+            strengthOffset = 0;
+            break;
+        case EffectStrength::STRONG:
+            strengthOffset = 1;
+            break;
+        default:
+            return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
+
+    uint32_t baseIndex = 0;
     uint32_t timeMs = 0;
 
     LOG(INFO) << "Vibrator perform";
@@ -56,52 +93,51 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
     switch (effect) {
         case Effect::TICK:
             LOG(INFO) << "Vibrator effect set to TICK";
-            index = WAVEFORM_TICK_EFFECT_INDEX;
+            baseIndex = WAVEFORM_LIGHT_SHORT_INDEX;
             timeMs = WAVEFORM_TICK_EFFECT_MS;
             break;
         case Effect::TEXTURE_TICK:
             LOG(INFO) << "Vibrator effect set to TEXTURE_TICK";
-            index = WAVEFORM_TEXTURE_TICK_EFFECT_INDEX;
+            baseIndex = WAVEFORM_LIGHT_SHORT_INDEX;
             timeMs = WAVEFORM_TEXTURE_TICK_EFFECT_MS;
             break;
         case Effect::CLICK:
             LOG(INFO) << "Vibrator effect set to CLICK";
-            index = WAVEFORM_CLICK_EFFECT_INDEX;
+            baseIndex = WAVEFORM_MEDIUM_SHORT_INDEX;
             timeMs = WAVEFORM_CLICK_EFFECT_MS;
-            break;
-        case Effect::HEAVY_CLICK:
-            LOG(INFO) << "Vibrator effect set to HEAVY_CLICK";
-            index = WAVEFORM_HEAVY_CLICK_EFFECT_INDEX;
-            timeMs = WAVEFORM_HEAVY_CLICK_EFFECT_MS;
-            break;
-        case Effect::DOUBLE_CLICK:
-            LOG(INFO) << "Vibrator effect set to DOUBLE_CLICK";
-            index = WAVEFORM_DOUBLE_CLICK_EFFECT_INDEX;
-            timeMs = WAVEFORM_DOUBLE_CLICK_EFFECT_MS;
-            break;
-        case Effect::THUD:
-            LOG(INFO) << "Vibrator effect set to THUD";
-            index = WAVEFORM_THUD_EFFECT_INDEX;
-            timeMs = WAVEFORM_THUD_EFFECT_MS;
             break;
         case Effect::POP:
             LOG(INFO) << "Vibrator effect set to POP";
-            index = WAVEFORM_TICK_EFFECT_INDEX;
+            baseIndex = WAVEFORM_MEDIUM_SHORT_INDEX;
             timeMs = WAVEFORM_POP_EFFECT_MS;
+            break;
+        case Effect::HEAVY_CLICK:
+            LOG(INFO) << "Vibrator effect set to HEAVY_CLICK";
+            baseIndex = WAVEFORM_HEAVY_SHORT_INDEX;
+            timeMs = WAVEFORM_HEAVY_CLICK_EFFECT_MS;
+            break;
+        case Effect::THUD:
+            LOG(INFO) << "Vibrator effect set to THUD";
+            baseIndex = WAVEFORM_HEAVY_SHORT_INDEX;
+            timeMs = WAVEFORM_THUD_EFFECT_MS;
             break;
         default:
             return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     }
 
-    /* Setup effect index */
-    write_haptic_node(index_node, index);
+    const int32_t adjustedIndex = std::clamp<int32_t>(
+            static_cast<int32_t>(baseIndex) + strengthOffset,
+            static_cast<int32_t>(WAVEFORM_LIGHT_SHORT_INDEX),
+            static_cast<int32_t>(WAVEFORM_HEAVY_SHORT_INDEX));
 
-    status = on(timeMs, nullptr);
-    if (!status.isOk()) {
-        return status;
-    } else {
-        *_aidl_return = timeMs;
+    // Write duration before index because aw8622_duration_store() overwrites effect_idx.
+    if (!write_haptic_node(duration_node, timeMs) ||
+        !write_haptic_node(index_node, static_cast<uint32_t>(adjustedIndex)) ||
+        !write_haptic_node(activate_node, 1)) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_TRANSACTION_FAILED);
     }
+
+    *_aidl_return = timeMs;
     return ndk::ScopedAStatus::ok();
 }
 
@@ -112,7 +148,6 @@ ndk::ScopedAStatus Vibrator::getSupportedEffects(std::vector<Effect> *_aidl_retu
         Effect::TEXTURE_TICK,
         Effect::CLICK,
         Effect::HEAVY_CLICK,
-        Effect::DOUBLE_CLICK,
         Effect::THUD,
         Effect::POP
     };
@@ -151,7 +186,7 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composi
 }
 
 ndk::ScopedAStatus Vibrator::getSupportedAlwaysOnEffects(std::vector<Effect>* _aidl_return) {
-    return getSupportedEffects(_aidl_return);
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 ndk::ScopedAStatus Vibrator::alwaysOnEnable(int32_t id, Effect effect, EffectStrength strength) {
