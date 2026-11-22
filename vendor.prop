@@ -94,13 +94,11 @@ ro.vendor.mtk_ufs_support=1
 ro.crypto.volume.filenames_mode=aes-256-cts
 
 # Display
-persist.sys.mcd_config_file=/system/etc/mcd_default.conf
 ro.opengles.version=196610
 ro.hardware.egl=meow
 ro.vendor.composer_version=2.2
 ro.vendor.mtk_dre30_support=1
 ro.vendor.mtk_pq_color_mode=1
-ro.vendor.mtk_prefer_64bit_proc=0
 ro.vendor.mtk_pq_support=2
 ro.vendor.pq.mtk_pq_video_whitelist_support=0
 ro.vendor.pq.mtk_mdp_lite_pq_support=0
@@ -136,6 +134,8 @@ ro.vendor.mtk_hdr_video_support=1
 persist.vendor.max.brightness=500
 ro.vendor.colorpick_adjust=true
 ro.vendor.cabc.enable=true
+persist.vendor.dc_backlight.enable=false
+vendor.hbm.enable=true
 
 # Fingerprint
 persist.vendor.fingerprint.type=side
@@ -168,9 +168,6 @@ persist.vendor.viwifi_support=1
 ro.lmk.thrashing_limit_decay=50
 ro.lmk.swap_util_max=90
 ro.lmk.kill_timeout_ms=100
-
-# MIUI
-persist.miui.extm.enable=1
 
 # Media
 debug.stagefright.c2inputsurface=-1
@@ -207,8 +204,8 @@ persist.vendor.radio.fd.off.counter=50
 persist.vendor.radio.fd.r8.counter=150
 persist.vendor.radio.fd.off.r8.counter=50
 ro.vendor.mtk_protocol1_rat_config=Lf/Lt/W/G
-ro.telephony.default_network=9,9,9,9
-ro.vendor.mtk_md1_support=9
+ro.telephony.default_network=9,9
+ro.vendor.mtk_md1_support=12
 ro.vendor.mtk_md3_support=0
 ro.vendor.mtk_c2k_lte_mode=0
 ro.vendor.mtk_eccci_c2k=1
@@ -219,7 +216,6 @@ ro.vendor.num_md_protocol=2
 persist.vendor.radio.flashless.fsm=0
 persist.vendor.radio.flashless.fsm_cst=0
 persist.vendor.radio.flashless.fsm_rw=0
-telephony.lteOnCdmaDevice=1
 ro.vendor.mtk_ril_mode=c6m_1rild
 ro.vendor.md_prop_ver=1
 ro.vendor.mtk_world_phone_policy=0
@@ -247,7 +243,6 @@ persist.vendor.md_c2k_cap_dep_check=0
 ro.vendor.mtk_modem_monitor_support=1
 ro.vendor.mtk_dmc_support=1
 ro.vendor.mtk_mapi_support=1
-import /vendor/build_${ro.boot.radio.multisim.config}_vendor.prop
 
 # Shutdown
 init.userspace_reboot.is_supported=true
@@ -284,6 +279,7 @@ ro.mtk_key_manager_support=1
 
 # USB
 vendor.usb.controller=usb0
+persist.vendor.otg_control=true
 
 # WiFi
 ro.vendor.wifi.sap.interface=ap0

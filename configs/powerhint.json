@@ -4,25 +4,25 @@
       "Name": "CPULittleClusterMaxFreq",
       "Path": "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq",
       "Values": [
-        "9999999",
-        "2000000",
-        "1933000",
-        "1866000",
-        "1800000",
-        "1733000",
-        "1666000",
-        "1618000",
-        "1500000",
-        "1375000",
-        "1275000",
-        "1175000",
-        "1075000",
-        "975000",
-        "875000",
+        "500000",
         "774000",
-        "500000"
+        "875000",
+        "975000",
+        "1075000",
+        "1175000",
+        "1275000",
+        "1375000",
+        "1500000",
+        "1618000",
+        "1666000",
+        "1733000",
+        "1800000",
+        "1866000",
+        "1933000",
+        "2000000",
+        "9999999"
       ],
-      "DefaultIndex": 0,
+      "DefaultIndex": 16,
       "ResetOnInit": true
     },
     {
@@ -53,25 +53,25 @@
       "Name": "CPUBigClusterMaxFreq",
       "Path": "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq",
       "Values": [
-        "9999999",
-        "2050000",
-        "1986000",
-        "1923000",
-        "1860000",
-        "1796000",
-        "1733000",
-        "1670000",
-        "1530000",
-        "1419000",
-        "1308000",
-        "1169000",
-        "1085000",
-        "1002000",
-        "919000",
+        "774000",
         "835000",
-        "774000"
+        "919000",
+        "1002000",
+        "1085000",
+        "1169000",
+        "1308000",
+        "1419000",
+        "1530000",
+        "1670000",
+        "1733000",
+        "1796000",
+        "1860000",
+        "1923000",
+        "1986000",
+        "2050000",
+        "9999999"
       ],
-      "DefaultIndex": 0,
+      "DefaultIndex": 16,
       "ResetOnInit": true
     },
     {
@@ -127,6 +127,7 @@
         "75",
         "50"
       ],
+      "DefaultIndex": 0,
       "ResetOnInit": true
     },
     {
@@ -274,12 +275,6 @@
     },
     {
       "PowerHint": "EXPENSIVE_RENDERING",
-      "Node": "GPUSchedMode",
-      "Duration": 0,
-      "Value": "0"
-    },
-    {
-      "PowerHint": "EXPENSIVE_RENDERING",
       "Node": "GPUMinFreq",
       "Duration": 0,
       "Value": "20"
@@ -382,12 +377,6 @@
     },
     {
       "PowerHint": "DEVICE_IDLE",
-      "Node": "DRAMOppMin",
-      "Duration": 0,
-      "Value": "-1"
-    },
-    {
-      "PowerHint": "DEVICE_IDLE",
       "Node": "CPULittleClusterMaxFreq",
       "Duration": 0,
       "Value": "1275000"
@@ -403,12 +392,6 @@
       "Node": "GPUMinFreq",
       "Duration": 0,
       "Value": "42"
-    },
-    {
-      "PowerHint": "DISPLAY_INACTIVE",
-      "Node": "DRAMOppMin",
-      "Duration": 0,
-      "Value": "-1"
     },
     {
       "PowerHint": "DISPLAY_INACTIVE",

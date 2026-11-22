@@ -2,7 +2,6 @@ libOpenCL.so
 libneuron_platform.so
 libion_mtk.so
 libvpu.so
-android.hidl.allocator@1.0.so
 libmpbase.so
 libmialgoengine.so
 libarcsoft_portrait_lighting.so
@@ -21,7 +20,7 @@ libsdk_sr.so
 lib_sr_models.so
 libanc_dc_base.so
 libmialgo_utils.so
-vendor.mediatek.hardware.camera.isphal@1.0
+vendor.mediatek.hardware.camera.isphal@1.0.so
 libxmi_high_dynamic_range.so
 libnir_neon_driver_ndk.mtk.vndk.so
 libcmdl_ndk.mtk.vndk.so

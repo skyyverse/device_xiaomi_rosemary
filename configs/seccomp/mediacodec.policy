@@ -10,7 +10,6 @@ munlock: 1
 recvfrom: 1
 sched_getaffinity: 1
 sched_setaffinity: 1
-sched_getaffinity: 1
 flock: 1
 fchownat: 1
 fchmodat: 1
