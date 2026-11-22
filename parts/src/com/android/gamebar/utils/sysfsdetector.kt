@@ -38,14 +38,14 @@ object SysfsDetector {
             if (content.isEmpty()) return@getOrPut 1000
 
             val rawValue = content.toInt()
+            val absValue = kotlin.math.abs(rawValue)
 
-            // Detect format based on typical temperature values
+            // Detect format using monotonic magnitude thresholds
             when {
-                rawValue in 20000..50000 -> 1000 // Mili-celsius (example: 35000 = 35°C)
-                rawValue in 2000..5000 -> 100    // Centi-celsius (example: 3500 = 35°c)
-                rawValue in 200..500 -> 10       // Deci-celsius (example: 350 = 35°C)
-                rawValue in 20..100 -> 1         //celcius
-                else -> 1000 // by default use 1000
+                absValue >= 10000 -> 1000 // Milli-celsius (example: 35000 = 35°C)
+                absValue >= 1000 -> 100   // Centi-celsius (example: 3500 = 35°C)
+                absValue >= 100 -> 10     // Deci-celsius (example: 350 = 35°C)
+                else -> 1                 // Celsius
             }.also { divider ->
                 Log.d("GameBarConfig:","Detected temperature divider for $path: $divider (raw value: $rawValue)")
             }
@@ -239,13 +239,13 @@ object SysfsDetector {
     @Synchronized
     fun getGpuTempInfo(): Pair<String?, Int> =
         temperatureInfo(detectedPaths.getOrPutNullable("gpu_temp") {
-            findThermalZonePath("gpuss-0", "gpu", "gpuss", "mtktsg")
+            findThermalZonePath("gpuss-0", "gpu", "gpuss", "mtktsg", "mt6359vgpu", "mtktscpu")
         })
 
     @Synchronized
     fun getRamTempInfo(): Pair<String?, Int> =
         temperatureInfo(detectedPaths.getOrPutNullable("ram_temp") {
-            findThermalZonePath("ddr", "ram", "mch", "pop")
+            findThermalZonePath("ddr", "ram", "mch", "pop", "mtktsdram")
         })
 
     private fun MutableMap<String, String?>.getOrPutNullable(

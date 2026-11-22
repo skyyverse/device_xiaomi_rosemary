@@ -61,14 +61,25 @@ object FpsRecordImageGenerator {
         val values: List<Float?>,
     )
 
+    private fun cleanupOldShareFiles(cacheDir: File) {
+        val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
+        cacheDir.listFiles { file ->
+            file.isFile &&
+                (file.name.startsWith("fps_record_") || file.name.startsWith("share_")) &&
+                file.lastModified() < cutoff
+        }?.forEach { it.delete() }
+    }
+
     fun generateAndShareImage(context: Context, appName: String, analytics: LogAnalytics) {
         generateAndShareChartsImage(context, appName, analytics)
     }
 
-    fun generateAndShareChartsImage(context: Context, appName: String, analytics: LogAnalytics) {
+    fun createChartsShareIntent(context: Context, appName: String, analytics: LogAnalytics): Intent? {
+        val cacheDir = context.externalCacheDir ?: context.cacheDir
+        cleanupOldShareFiles(cacheDir)
+        val file = File(cacheDir, "fps_record_${System.currentTimeMillis()}.png")
         val bitmap = generateChartsImage(context, appName, analytics)
-        val file = File(context.externalCacheDir ?: context.cacheDir, "fps_record_${System.currentTimeMillis()}.png")
-        runCatching {
+        return runCatching {
             FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -77,14 +88,16 @@ object FpsRecordImageGenerator {
                 putExtra(Intent.EXTRA_SUBJECT, "FPS Record: $appName")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(shareIntent, "Share FPS graphics"))
-        }
+            Intent.createChooser(shareIntent, "Share FPS graphics")
+        }.getOrNull().also { bitmap.recycle() }
     }
 
-    fun generateAndShareStatsImage(context: Context, appName: String, analytics: LogAnalytics) {
+    fun createStatsShareIntent(context: Context, appName: String, analytics: LogAnalytics): Intent? {
+        val cacheDir = context.externalCacheDir ?: context.cacheDir
+        cleanupOldShareFiles(cacheDir)
+        val file = File(cacheDir, "fps_record_stats_${System.currentTimeMillis()}.png")
         val bitmap = generateStatsImage(context, appName, analytics)
-        val file = File(context.externalCacheDir ?: context.cacheDir, "fps_record_stats_${System.currentTimeMillis()}.png")
-        runCatching {
+        return runCatching {
             FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -93,8 +106,16 @@ object FpsRecordImageGenerator {
                 putExtra(Intent.EXTRA_SUBJECT, "FPS Record Stats: $appName")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(shareIntent, "Share FPS stats graphics"))
-        }
+            Intent.createChooser(shareIntent, "Share FPS stats graphics")
+        }.getOrNull().also { bitmap.recycle() }
+    }
+
+    fun generateAndShareChartsImage(context: Context, appName: String, analytics: LogAnalytics) {
+        createChartsShareIntent(context, appName, analytics)?.let { context.startActivity(it) }
+    }
+
+    fun generateAndShareStatsImage(context: Context, appName: String, analytics: LogAnalytics) {
+        createStatsShareIntent(context, appName, analytics)?.let { context.startActivity(it) }
     }
 
     fun saveGraphics(context: Context, appName: String, analytics: LogAnalytics): Boolean {
@@ -105,7 +126,7 @@ object FpsRecordImageGenerator {
         val bitmap = generateChartsImage(context, appName, analytics)
         val fileName = buildImageName(appName)
 
-        return runCatching {
+        return try {
             val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -125,14 +146,18 @@ object FpsRecordImageGenerator {
                 resolver.update(uri, done, null, null)
             }
             true
-        }.getOrElse { false }
+        } catch (_: Exception) {
+            false
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     fun saveStatsGraphics(context: Context, appName: String, analytics: LogAnalytics): Boolean {
         val bitmap = generateStatsImage(context, appName, analytics)
         val fileName = buildImageName("${appName}_stats")
 
-        return runCatching {
+        return try {
             val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, fileName)
@@ -152,7 +177,11 @@ object FpsRecordImageGenerator {
                 resolver.update(uri, done, null, null)
             }
             true
-        }.getOrElse { false }
+        } catch (_: Exception) {
+            false
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun generateChartsImage(context: Context, appName: String, analytics: LogAnalytics): Bitmap {
@@ -242,8 +271,8 @@ object FpsRecordImageGenerator {
         y += CHART_CARD_HEIGHT + CARD_SPACING
 
         drawFixedAxisLineChartCard(
-            canvas, "RAM Frequency (MHz)", listOf(Series("RAM Freq", p.cyan, ramFreq)),
-            y, 0f, (((ramFreq.maxOrNull() ?: 0f) / 200f).toInt() + 1).coerceAtLeast(4) * 200f, 200f, "MHz", p
+            canvas, "RAM Frequency (MT/s)", listOf(Series("RAM Freq", p.cyan, ramFreq)),
+            y, 0f, (((ramFreq.maxOrNull() ?: 0f) / 200f).toInt() + 1).coerceAtLeast(4) * 200f, 200f, "MT/s", p
         )
         y += CHART_CARD_HEIGHT + CARD_SPACING
 

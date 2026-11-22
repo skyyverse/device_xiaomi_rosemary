@@ -180,7 +180,11 @@ class GameDataExport private constructor() {
         val rows = statsRows.toList()
         exportScope.launch {
             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(Date())
-            val outFile = File(Environment.getExternalStorageDirectory(), "GameBar_log_$timeStamp.csv")
+            val context = android.app.ActivityThread.currentApplication()
+            val logsDir = context?.let { it.getExternalFilesDir("logs") ?: File(it.filesDir, "logs") }
+                ?: File(Environment.getExternalStorageDirectory(), "GameBarLogs")
+            logsDir.mkdirs()
+            val outFile = File(logsDir, "GameBar_log_$timeStamp.csv")
             try {
                 outFile.bufferedWriter().use { writer ->
                     writer.appendLine(CSV_HEADER.joinToString(","))

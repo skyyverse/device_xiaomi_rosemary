@@ -78,7 +78,7 @@ public class ThermalService extends Service {
 
         IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
-        registerReceiver(mScreenReceiver, filter);
+        registerReceiver(mScreenReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         try {
             mActivityTaskManager.registerTaskStackListener(mTaskListener);
             mTaskListenerRegistered = true;

@@ -45,12 +45,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.DUMP" />
+    <uses-permission android:name="com.android.systemui.permission.SCREEN_RECORDING" />
 
     <protected-broadcast android:name="com.android.systemui.doze.pulse" />
-
-    <uses-sdk
-        android:minSdkVersion="24"
-        android:targetSdkVersion="30"/>
 
     <application
         android:label="@string/app_title"
@@ -71,12 +68,14 @@
 
         <activity
             android:name=".doze.DozeSettingsActivity"
-            android:label="@string/ambient_display_title">
+            android:label="@string/ambient_display_title"
+            android:exported="false">
         </activity>
 
         <activity
             android:name=".thermal.ThermalSettingsActivity"
-            android:label="@string/thermal_title">
+            android:label="@string/thermal_title"
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.android.settings.action.IA_SETTINGS" />
             </intent-filter>
@@ -90,7 +89,7 @@
 
         <service
             android:name=".thermal.ThermalService"
-            android:permission="ThermalService">
+            android:exported="false">
         </service>
 
         <!-- ============================== GameBar ============================== -->
@@ -168,6 +167,7 @@
         <!-- GameBar Toggle Receiver -->
         <receiver
             android:name="com.android.gamebar.GameBarToggleReceiver"
+            android:permission="android.permission.WRITE_SECURE_SETTINGS"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.android.gamebar.ACTION_TOGGLE" />
@@ -219,8 +219,9 @@
         <!-- ============================ End GameBar ============================ -->
 
         <activity
-            android:name=".speaker.ClearSpeakerActivity" 
-            android:label="@string/clear_speaker_title">
+            android:name=".speaker.ClearSpeakerActivity"
+            android:label="@string/clear_speaker_title"
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.android.settings.action.IA_SETTINGS" />
             </intent-filter>

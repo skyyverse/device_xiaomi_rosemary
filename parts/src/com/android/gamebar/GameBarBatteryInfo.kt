@@ -49,7 +49,7 @@ object GameBarBatteryInfo {
             val voltageV = voltageMv / 1000.0
             val watt = currentA * voltageV
             if (watt <= 0.0 || watt.isNaN() || watt.isInfinite()) return "N/A"
-            String.format(Locale.getDefault(), "%.3f", watt)
+            String.format(Locale.US, "%.3f", watt)
         } catch (_: Exception) {
             "N/A"
         }
@@ -63,7 +63,7 @@ object GameBarBatteryInfo {
                 if (tempTenths != Int.MIN_VALUE) {
                     val celsius = tempTenths / 10f
                     if (celsius in -30f..120f) {
-                        return String.format(Locale.getDefault(), "%.1f", celsius)
+                        return String.format(Locale.US, "%.1f", celsius)
                     }
                 }
             }
@@ -79,7 +79,7 @@ object GameBarBatteryInfo {
             val raw = rawLine.trim().toIntOrNull() ?: return "N/A"
             val celsius = raw / divider.toFloat()
             if (celsius in -30f..120f) {
-                String.format(Locale.getDefault(), "%.1f", celsius)
+                String.format(Locale.US, "%.1f", celsius)
             } else {
                 "N/A"
             }

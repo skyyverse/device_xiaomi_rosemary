@@ -75,9 +75,9 @@ public class ThermalSettingsFragment extends PreferenceFragment
         mApplicationsState = ApplicationsState.getInstance(getActivity().getApplication());
         mSession = mApplicationsState.newSession(this);
         mSession.onResume();
-        mActivityFilter = new ActivityFilter(getActivity().getPackageManager());
 
         mAllPackagesAdapter = new AllPackagesAdapter(getActivity());
+        mActivityFilter = mAllPackagesAdapter.getActivityFilter();
 
         mThermalUtils = new ThermalUtils(getActivity());
     }
@@ -101,10 +101,6 @@ public class ThermalSettingsFragment extends PreferenceFragment
     public void setDivider(@Nullable final Drawable divider) {
         RecyclerView list = getListView();
         if (list == null) {
-            View root = getView();
-            if (root != null) {
-                root.post(() -> setDivider(divider));
-            }
             return;
         }
 
@@ -166,6 +162,9 @@ public class ThermalSettingsFragment extends PreferenceFragment
     }
 
     private void handleAppEntries(List<ApplicationsState.AppEntry> entries) {
+        if (getActivity() == null) {
+            return;
+        }
         final ArrayList<String> sections = new ArrayList<String>();
         final ArrayList<Integer> positions = new ArrayList<Integer>();
         final PackageManager pm = getActivity().getPackageManager();
@@ -174,7 +173,7 @@ public class ThermalSettingsFragment extends PreferenceFragment
 
         for (int i = 0; i < entries.size(); i++) {
             final ApplicationInfo info = entries.get(i).info;
-            final String label = (String) info.loadLabel(pm);
+            final String label = info.loadLabel(pm).toString();
             final String sectionIndex;
 
             if (!info.enabled) {
@@ -307,8 +306,14 @@ public class ThermalSettingsFragment extends PreferenceFragment
         private String[] mSections;
         private int[] mPositions;
 
+        private final ActivityFilter mAdapterFilter;
+
         public AllPackagesAdapter(Context context) {
-            mActivityFilter = new ActivityFilter(context.getPackageManager());
+            mAdapterFilter = new ActivityFilter(context.getPackageManager());
+        }
+
+        public ActivityFilter getActivityFilter() {
+            return mAdapterFilter;
         }
 
         @Override
@@ -345,8 +350,10 @@ public class ThermalSettingsFragment extends PreferenceFragment
             mApplicationsState.ensureIcon(entry);
             holder.icon.setImageDrawable(entry.icon);
             int packageState = mThermalUtils.getStateForPackage(entry.info.packageName);
-            holder.mode.setSelection(packageState, false);
+            holder.mode.setOnItemSelectedListener(null);
             holder.mode.setTag(entry);
+            holder.mode.setSelection(packageState, false);
+            holder.mode.setOnItemSelectedListener(this);
             holder.stateIcon.setImageResource(getStateDrawable(packageState));
         }
 
@@ -365,6 +372,9 @@ public class ThermalSettingsFragment extends PreferenceFragment
         @Override
         public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
             final ApplicationsState.AppEntry entry = (ApplicationsState.AppEntry) parent.getTag();
+            if (entry == null) {
+                return;
+            }
             int currentState = mThermalUtils.getStateForPackage(entry.info.packageName);
             if (currentState != position) {
                 mThermalUtils.writePackage(entry.info.packageName, position);
@@ -440,13 +450,9 @@ public class ThermalSettingsFragment extends PreferenceFragment
 
         @Override
         public boolean filterApp(ApplicationsState.AppEntry entry) {
-            boolean show = !mAllPackagesAdapter.mEntries.contains(entry.info.packageName);
-            if (show) {
-                synchronized (mLauncherResolveInfoList) {
-                    show = mLauncherResolveInfoList.contains(entry.info.packageName);
-                }
+            synchronized (mLauncherResolveInfoList) {
+                return mLauncherResolveInfoList.contains(entry.info.packageName);
             }
-            return show;
         }
     }
 }

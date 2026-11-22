@@ -78,7 +78,7 @@ object GameBarMemInfo {
         return try {
             val raw = File(path).bufferedReader().use { it.readLine() }?.trim()?.toIntOrNull()
                 ?: return "N/A"
-            String.format(Locale.getDefault(), "%.1f°C", raw / divider.toFloat())
+            String.format(Locale.US, "%.1f°C", raw / divider.toFloat())
         } catch (_: IOException) {
             "N/A"
         }

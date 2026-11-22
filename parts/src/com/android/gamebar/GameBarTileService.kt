@@ -6,6 +6,9 @@
 
 package com.android.gamebar
 
+import android.app.PendingIntent
+import android.os.UserHandle
+import android.provider.Settings
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import androidx.preference.PreferenceManager
@@ -21,9 +24,7 @@ class GameBarTileService : TileService() {
     }
     
     private fun ensureGameBarInstance() {
-        if (!GameBar.isInstanceCreated()) {
-            gameBar = GameBar.getInstance(this)
-        }
+        gameBar = GameBar.getInstance(this)
     }
 
     override fun onStartListening() {
@@ -41,12 +42,18 @@ class GameBarTileService : TileService() {
         prefs.edit()
                 .putBoolean("game_bar_enable", newState)
                 .apply()
+        Settings.System.putIntForUser(
+            contentResolver,
+            "game_bar_enabled",
+            if (newState) 1 else 0,
+            UserHandle.USER_CURRENT
+        )
 
         updateTileState(newState)
 
         if (newState) {
             // Ensure we have overlay permission before showing
-            if (android.provider.Settings.canDrawOverlays(this)) {
+            if (Settings.canDrawOverlays(this)) {
                 android.util.Log.d("GameBarTileService", "Enabling GameBar from tile")
                 
                 // Ensure we have a GameBar instance
@@ -68,13 +75,21 @@ class GameBarTileService : TileService() {
                 prefs.edit()
                         .putBoolean("game_bar_enable", false)
                         .apply()
+                Settings.System.putIntForUser(
+                    contentResolver,
+                    "game_bar_enabled",
+                    0,
+                    UserHandle.USER_CURRENT
+                )
                 updateTileState(false)
                 
                 // Show permission request intent
-                val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                val intent = android.content.Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         android.net.Uri.parse("package:$packageName"))
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(intent)
+                startActivityAndCollapse(
+                    PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+                )
             }
         } else {
             android.util.Log.d("GameBarTileService", "Disabling GameBar from tile")

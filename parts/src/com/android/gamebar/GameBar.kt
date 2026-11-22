@@ -427,7 +427,9 @@ class GameBar private constructor(context: Context) {
                     downRawX = event.rawX
                     downRawY = event.rawY
                     startScrollX = (overlayView as? HorizontalScrollView)?.scrollX ?: 0
-                    startWindowWidth = layoutParams?.width ?: 0
+                    startWindowWidth = overlayView?.width?.takeIf { it > 0 }
+                        ?: layoutParams?.width?.takeIf { it > 0 }
+                        ?: overlayWidthPxFromDp(overlayWidthDp)
                     if (overlayWidthEditing) {
                         touchMode = OverlayTouchMode.WIDTH_EDIT
                         pressActive = false
@@ -536,7 +538,7 @@ class GameBar private constructor(context: Context) {
         isShowing = true
         context.registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_ON).apply {
             addAction(Intent.ACTION_SCREEN_OFF)
-        })
+        }, Context.RECEIVER_NOT_EXPORTED)
         screenReceiverRegistered = true
         startUpdates()
     }
@@ -1092,13 +1094,24 @@ class GameBar private constructor(context: Context) {
     }
 
     private fun takeScreenshot() {
-        try {
-            // Trigger system screenshot using shell command
-            Runtime.getRuntime().exec("input keyevent KEYCODE_SYSRQ")
-            Toast.makeText(context, R.string.toast_screenshot_taken, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(context, R.string.toast_screenshot_failed, Toast.LENGTH_SHORT).show()
-        }
+        Thread {
+            var process: Process? = null
+            val ok = try {
+                process = ProcessBuilder("input", "keyevent", "KEYCODE_SYSRQ").start()
+                process.waitFor() == 0
+            } catch (_: Exception) {
+                false
+            } finally {
+                process?.destroy()
+            }
+            handler.post {
+                Toast.makeText(
+                    context,
+                    if (ok) R.string.toast_screenshot_taken else R.string.toast_screenshot_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }.start()
     }
     
     private fun bindScreenRecorder() {

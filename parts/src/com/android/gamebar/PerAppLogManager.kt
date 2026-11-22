@@ -171,6 +171,7 @@ class PerAppLogManager private constructor() {
         val session = activeLogSessions.remove(packageName) ?: return
         if (session.rows.isEmpty()) {
             session.resolution.cancel()
+            listener?.onAppLoggingStopped(packageName)
             return
         }
         exportScope.launch {

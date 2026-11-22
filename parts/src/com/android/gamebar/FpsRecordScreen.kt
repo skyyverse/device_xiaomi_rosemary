@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -143,6 +144,14 @@ fun FpsRecordScreen(
     }
 
     if (selectedSession != null) {
+        BackHandler {
+            selectedSession = null
+            selectedAnalytics = null
+            loadingAnalytics = false
+            scope.launch {
+                refreshSessions()
+            }
+        }
         if (loadingAnalytics) {
             LaunchedEffect(selectedSession!!.file.absolutePath) {
                 selectedAnalytics = withContext(Dispatchers.IO) {
@@ -377,9 +386,32 @@ private fun FpsRecordDetailScreen(
     loading: Boolean,
     onBack: () -> Unit,
 ) {
-    if (loading || analytics == null) {
+    if (loading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
+        }
+        return
+    }
+    if (analytics == null) {
+        Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Unable to parse FPS session log",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = session.file.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                androidx.compose.material3.Button(onClick = onBack) {
+                    Text("Back")
+                }
+            }
         }
         return
     }
@@ -506,21 +538,48 @@ private fun FpsRecordDetailScreen(
                                 text = { Text("Share Session Log (CSV)") },
                                 onClick = {
                                     showShareMenu = false
-                                    shareSessionFile(context, session.file)
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val shareIntent = buildSessionShareIntent(context, session.file)
+                                        withContext(Dispatchers.Main) {
+                                            if (shareIntent != null) {
+                                                context.startActivity(shareIntent)
+                                            } else {
+                                                Toast.makeText(context, "Failed to share session log", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Share Graphics Charts (PNG)") },
                                 onClick = {
                                     showShareMenu = false
-                                    FpsRecordImageGenerator.generateAndShareChartsImage(context, session.appName, analytics)
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val shareIntent = FpsRecordImageGenerator.createChartsShareIntent(context, session.appName, analytics)
+                                        withContext(Dispatchers.Main) {
+                                            if (shareIntent != null) {
+                                                context.startActivity(shareIntent)
+                                            } else {
+                                                Toast.makeText(context, "Failed to share graphics", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Share Graphics Stats (PNG)") },
                                 onClick = {
                                     showShareMenu = false
-                                    FpsRecordImageGenerator.generateAndShareStatsImage(context, session.appName, analytics)
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val shareIntent = FpsRecordImageGenerator.createStatsShareIntent(context, session.appName, analytics)
+                                        withContext(Dispatchers.Main) {
+                                            if (shareIntent != null) {
+                                                context.startActivity(shareIntent)
+                                            } else {
+                                                Toast.makeText(context, "Failed to share graphics", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -548,24 +607,32 @@ private fun FpsRecordDetailScreen(
                                 text = { Text("Save Graphics Charts (PNG)") },
                                 onClick = {
                                     showSaveMenu = false
-                                    val ok = FpsRecordImageGenerator.saveChartsGraphics(context, session.appName, analytics)
-                                    Toast.makeText(
-                                        context,
-                                        if (ok) "Graphics saved to Downloads" else "Failed to save graphics",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val ok = FpsRecordImageGenerator.saveChartsGraphics(context, session.appName, analytics)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(
+                                                context,
+                                                if (ok) "Graphics saved to Downloads" else "Failed to save graphics",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Save Graphics Stats (PNG)") },
                                 onClick = {
                                     showSaveMenu = false
-                                    val ok = FpsRecordImageGenerator.saveStatsGraphics(context, session.appName, analytics)
-                                    Toast.makeText(
-                                        context,
-                                        if (ok) "Graphics saved to Downloads" else "Failed to save graphics",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val ok = FpsRecordImageGenerator.saveStatsGraphics(context, session.appName, analytics)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(
+                                                context,
+                                                if (ok) "Graphics saved to Downloads" else "Failed to save graphics",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -943,7 +1010,7 @@ private fun FpsRecordDetailScreen(
                 val maxFreq = ramSpeedValues.maxOrNull() ?: 0f
                 val yMax = (((maxFreq / 200f).toInt() + 1).coerceAtLeast(4) * 200f)
                 LineChartCard(
-                    title = "RAM Frequency (MHz)",
+                    title = "RAM Frequency (MT/s)",
                     series = listOf(ChartSeries("RAM Freq", chartColors.cyan, ramSpeedValues)),
                     chartContent = {
                         FixedAxisLineChart(
@@ -959,7 +1026,7 @@ private fun FpsRecordDetailScreen(
                         max = maxFreq,
                         min = ramSpeedValues.filter { it > 0f }.minOrNull(),
                         avg = avgOrNull(ramSpeedValues.filter { it > 0f }),
-                        unit = "MHz",
+                        unit = "MT/s",
                     )
                 )
             }
@@ -1695,14 +1762,16 @@ private fun avgOrNull(values: List<Float>): Float? {
     return values.average().toFloat()
 }
 
-private fun shareSessionFile(context: Context, file: File) {
-    if (!file.exists() || !file.canRead()) {
-        Toast.makeText(context, "Session log is not readable", Toast.LENGTH_SHORT).show()
-        return
-    }
-    runCatching {
+private fun buildSessionShareIntent(context: Context, file: File): Intent? {
+    if (!file.exists() || !file.canRead()) return null
+    return runCatching {
+        val cacheDir = context.externalCacheDir ?: context.cacheDir
+        val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
+        cacheDir.listFiles { entry ->
+            entry.isFile && entry.name.startsWith("share_") && entry.lastModified() < cutoff
+        }?.forEach { it.delete() }
         val shareSource =
-            File(context.externalCacheDir ?: context.cacheDir, "share_${System.currentTimeMillis()}_${file.name}").apply {
+            File(cacheDir, "share_${System.currentTimeMillis()}_${file.name}").apply {
                 file.copyTo(this, overwrite = true)
             }
         val uri = FileProvider.getUriForFile(
@@ -1717,10 +1786,8 @@ private fun shareSessionFile(context: Context, file: File) {
             putExtra(Intent.EXTRA_TEXT, "FPS session log: ${file.name}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "Share session log"))
-    }.onFailure {
-        Toast.makeText(context, "Failed to share session log", Toast.LENGTH_SHORT).show()
-    }
+        Intent.createChooser(shareIntent, "Share session log")
+    }.getOrNull()
 }
 
 private fun descriptionFileFor(sessionFile: File): File {

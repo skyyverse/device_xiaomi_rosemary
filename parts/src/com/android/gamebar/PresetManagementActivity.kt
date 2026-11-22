@@ -11,7 +11,6 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.view.View
 import android.widget.EditText
 import android.widget.PopupMenu
@@ -147,9 +146,15 @@ class PresetManagementActivity : CollapsingToolbarBaseActivity() {
 
     private fun exportPreset(preset: PresetManager.Preset) {
         try {
-            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val fileName = "GameBar_Preset_${preset.name.replace(" ", "_")}_$timeStamp.json"
-            val file = File(Environment.getExternalStorageDirectory(), fileName)
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val safeName = preset.name
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                .trim('_')
+                .ifEmpty { "preset" }
+            val fileName = "GameBar_Preset_${safeName}_$timeStamp.json"
+            val exportDir = getExternalFilesDir("presets") ?: File(filesDir, "presets")
+            exportDir.mkdirs()
+            val file = File(exportDir, fileName)
             
             if (presetManager.exportPreset(preset.id, file)) {
                 // Share the exported file

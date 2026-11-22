@@ -35,7 +35,7 @@ object GameBarGpuInfo {
     fun getGpuTemp(): String {
         val (path, divider) = GameBarConfig.getGpuTempConfig()
         val raw = path?.let(::readLine)?.trim()?.toIntOrNull() ?: return "N/A"
-        return String.format(Locale.getDefault(), "%.1f", raw / divider.toFloat())
+        return String.format(Locale.US, "%.1f", raw / divider.toFloat())
     }
 
     private fun getMtkOppFreqKhz(oppIdx: Int): Long? {

@@ -82,9 +82,11 @@ public class ClearSpeakerFragment extends PreferenceFragment implements
     }
 
     public boolean startPlaying() {
-        mAudioManager.setParameters("status_earpiece_clean=on");
+        stopPlaying();
         mMediaPlayer = new MediaPlayer();
-        getActivity().setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        if (getActivity() != null) {
+            getActivity().setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        }
         mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
         mMediaPlayer.setLooping(true);
         try {
@@ -100,21 +102,22 @@ public class ClearSpeakerFragment extends PreferenceFragment implements
             mMediaPlayer.start();
         } catch (IOException ioe) {
             Log.e(TAG, "Failed to play speaker clean sound!", ioe);
+            stopPlaying();
             return false;
         }
         return true;
     }
 
     public void stopPlaying() {
+        mHandler.removeCallbacksAndMessages(null);
         if (mMediaPlayer != null) {
             if (mMediaPlayer.isPlaying()) {
                 mMediaPlayer.stop();
-                mMediaPlayer.reset();
-                mMediaPlayer.release();
-                mMediaPlayer=null;
             }
+            mMediaPlayer.reset();
+            mMediaPlayer.release();
+            mMediaPlayer = null;
         }
-        mAudioManager.setParameters("status_earpiece_clean=off");
         mClearSpeakerPref.setEnabled(true);
         mClearSpeakerPref.setChecked(false);
     }

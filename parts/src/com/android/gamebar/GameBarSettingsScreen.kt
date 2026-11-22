@@ -9,6 +9,7 @@ import org.lineageos.settings.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.UserHandle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,6 +46,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,9 +56,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.preference.PreferenceManager
 import com.android.gamebar.colorpicker.ColorPickerDialog
 import com.android.gamebar.colorpicker.ColorPickerDialogListener
@@ -73,6 +78,7 @@ import com.android.gamebar.ui.components.SettingsSectionCard
 import com.android.gamebar.ui.components.SettingsSelectRow
 import com.android.gamebar.ui.components.SettingsSwitchRow
 import com.android.gamebar.ui.theme.UiStyleController
+import com.android.gamebar.utils.SysfsDetector
 import java.io.File
 
 @Composable
@@ -84,15 +90,34 @@ fun GameBarSettingsScreen(
     onToggleLauncherIcon: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     UiStyleController.ensureInitialized(context)
     val amoledBlackEnabled by UiStyleController.amoledBlackEnabled.collectAsState()
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
     val presetManager = remember { PresetManager.getInstance(context) }
+    val legacyFpsSupported = remember { SysfsDetector.getFpsPath() != null }
     var selectedTab by remember { mutableStateOf(GameBarNavTab.HOME) }
 
     fun putBoolean(key: String, value: Boolean) = prefs.edit().putBoolean(key, value).apply()
     fun putInt(key: String, value: Int) = prefs.edit().putInt(key, value).apply()
     fun putString(key: String, value: String) = prefs.edit().putString(key, value).apply()
+    fun syncGameBarSystemSetting(enabled: Boolean) {
+        Settings.System.putIntForUser(
+            context.contentResolver,
+            "game_bar_enabled",
+            if (enabled) 1 else 0,
+            UserHandle.USER_CURRENT
+        )
+    }
+    fun readFpsMethod(): String {
+        val raw = prefs.getString("game_bar_fps_method", "new") ?: "new"
+        return if (!legacyFpsSupported && raw == "legacy") {
+            putString("game_bar_fps_method", "new")
+            "new"
+        } else {
+            raw
+        }
+    }
     fun readGestureAction(key: String, defaultValue: String): String {
         val raw = prefs.getString(key, defaultValue) ?: defaultValue
         return if (raw == "capture_logs") {
@@ -141,19 +166,6 @@ fun GameBarSettingsScreen(
     var gameBarEnabled by remember { mutableStateOf(prefs.getBoolean("game_bar_enable", false)) }
     var autoEnable by remember { mutableStateOf(prefs.getBoolean("game_bar_auto_enable", false)) }
 
-    androidx.compose.runtime.DisposableEffect(prefs) {
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPrefs, key ->
-            when (key) {
-                "game_bar_enable" -> gameBarEnabled = sharedPrefs.getBoolean(key, false)
-                "game_bar_auto_enable" -> autoEnable = sharedPrefs.getBoolean(key, false)
-                "game_bar_fps_record_control_enabled" -> fpsRecordControlEnabled = sharedPrefs.getBoolean(key, false)
-            }
-        }
-        prefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose {
-            prefs.unregisterOnSharedPreferenceChangeListener(listener)
-        }
-    }
     var showLauncherIcon by remember {
         mutableStateOf(
             context.getSharedPreferences(GameBarSettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
@@ -175,7 +187,7 @@ fun GameBarSettingsScreen(
     var gpuTempEnable by remember { mutableStateOf(prefs.getBoolean("game_bar_gpu_temp_enable", false)) }
 
     var fpsDisplayMode by remember { mutableStateOf(prefs.getString("game_bar_fps_display_mode", "basic") ?: "basic") }
-    var fpsMethod by remember { mutableStateOf(prefs.getString("game_bar_fps_method", "new") ?: "new") }
+    var fpsMethod by remember { mutableStateOf(readFpsMethod()) }
 
     var textSize by remember { mutableStateOf(prefs.getInt("game_bar_text_size", 15)) }
     var bgAlpha by remember { mutableStateOf(prefs.getInt("game_bar_background_alpha", 255)) }
@@ -198,14 +210,78 @@ fun GameBarSettingsScreen(
     var longPressFunction by remember { mutableStateOf(readGestureAction("game_bar_longpress_function", "load_preset")) }
     var longPressTimeout by remember { mutableStateOf(prefs.getString("game_bar_longpress_timeout", "500") ?: "500") }
 
+    fun reloadPrefs() {
+        gameBarEnabled = prefs.getBoolean("game_bar_enable", false)
+        autoEnable = prefs.getBoolean("game_bar_auto_enable", false)
+        fpsRecordControlEnabled = prefs.getBoolean("game_bar_fps_record_control_enabled", false)
+        fpsEnable = prefs.getBoolean("game_bar_fps_enable", true)
+        frameTimeEnable = prefs.getBoolean("game_bar_frame_time_enable", false)
+        tempEnable = prefs.getBoolean("game_bar_temp_enable", false)
+        cpuUsageEnable = prefs.getBoolean("game_bar_cpu_usage_enable", true)
+        cpuClockEnable = prefs.getBoolean("game_bar_cpu_clock_enable", false)
+        cpuTempEnable = prefs.getBoolean("game_bar_cpu_temp_enable", false)
+        ramEnable = prefs.getBoolean("game_bar_ram_enable", false)
+        ramSpeedEnable = prefs.getBoolean("game_bar_ram_speed_enable", false)
+        ramTempEnable = prefs.getBoolean("game_bar_ram_temp_enable", false)
+        gpuUsageEnable = prefs.getBoolean("game_bar_gpu_usage_enable", true)
+        gpuClockEnable = prefs.getBoolean("game_bar_gpu_clock_enable", false)
+        gpuTempEnable = prefs.getBoolean("game_bar_gpu_temp_enable", false)
+        fpsDisplayMode = prefs.getString("game_bar_fps_display_mode", "basic") ?: "basic"
+        fpsMethod = readFpsMethod()
+        textSize = prefs.getInt("game_bar_text_size", 15)
+        bgAlpha = prefs.getInt("game_bar_background_alpha", 255)
+        bgColor = prefs.getInt("game_bar_background_color", 0xFF0D1117.toInt())
+        cornerRadius = prefs.getInt("game_bar_corner_radius", 30)
+        paddingValue = prefs.getInt("game_bar_padding", 4)
+        itemSpacing = prefs.getInt("game_bar_item_spacing", 8)
+        overlayWidthDp = prefs.getInt("game_bar_overlay_width_dp", 280)
+        updateInterval = prefs.getString("game_bar_update_interval", "1000") ?: "1000"
+        titleColor = prefs.getInt("game_bar_title_color", 0xFF9FCEDE.toInt())
+        valueColor = prefs.getInt("game_bar_value_color", 0xFFFFB347.toInt())
+        overlayFormat = prefs.getString("game_bar_format", "full") ?: "full"
+        splitMode = prefs.getString("game_bar_split_mode", "side_by_side") ?: "side_by_side"
+        singleTapEnable = prefs.getBoolean("game_bar_single_tap_enable", true)
+        singleTapFunction = readGestureAction("game_bar_single_tap_function", "toggle_format")
+        doubleTapEnable = prefs.getBoolean("game_bar_doubletap_enable", true)
+        doubleTapFunction = readGestureAction("game_bar_doubletap_function", "toggle_fps_logging")
+        longPressEnable = prefs.getBoolean("game_bar_longpress_enable", true)
+        longPressFunction = readGestureAction("game_bar_longpress_function", "load_preset")
+        longPressTimeout = prefs.getString("game_bar_longpress_timeout", "500") ?: "500"
+    }
+
+    DisposableEffect(prefs, lifecycleOwner) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key != "gamebar_preset_list" && key?.startsWith("gamebar_presets_") != true) {
+                reloadPrefs()
+            }
+        }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                reloadPrefs()
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+        }
+    }
+
     val fpsDisplayOptions = listOf(
         SelectOption("basic", "Basic (Current FPS only)"),
         SelectOption("advanced", "Advanced (Current + 1% + 0.1% Low)"),
     )
-    val fpsMethodOptions = listOf(
-        SelectOption("new", "New API (Default)"),
-        SelectOption("legacy", "Legacy Sysfs"),
-    )
+    val fpsMethodOptions = remember(legacyFpsSupported) {
+        if (legacyFpsSupported) {
+            listOf(
+                SelectOption("new", "New API (Default)"),
+                SelectOption("legacy", "Legacy Sysfs"),
+            )
+        } else {
+            listOf(SelectOption("new", "New API (Default)"))
+        }
+    }
     val intervalOptions = listOf(
         SelectOption("500", "Every 500ms"),
         SelectOption("1000", "Every second"),
@@ -306,10 +382,12 @@ fun GameBarSettingsScreen(
                                         )
                                         gameBarEnabled = false
                                         putBoolean("game_bar_enable", false)
+                                        syncGameBarSystemSetting(false)
                                         return@SettingsSwitchRow
                                     }
                                     gameBarEnabled = checked
                                     putBoolean("game_bar_enable", checked)
+                                    syncGameBarSystemSetting(checked)
                                     if (checked) {
                                         val gameBar = GameBar.getInstance(context)
                                         gameBar.hide()
@@ -396,7 +474,7 @@ fun GameBarSettingsScreen(
                                 SettingsSwitchRow("CPU Clock Speeds", "Show current CPU clock speeds for each core", cpuClockEnable) { cpuClockEnable = it; putBoolean("game_bar_cpu_clock_enable", it); applyPrefs() }
                                 SettingsSwitchRow("CPU Temperature", "Show CPU temperature", cpuTempEnable) { cpuTempEnable = it; putBoolean("game_bar_cpu_temp_enable", it); applyPrefs() }
                                 SettingsSwitchRow("RAM Usage", "Show current RAM usage in MB", ramEnable) { ramEnable = it; putBoolean("game_bar_ram_enable", it); applyPrefs() }
-                                SettingsSwitchRow("RAM Frequency", "Show current RAM frequency(bus) in GHz", ramSpeedEnable) { ramSpeedEnable = it; putBoolean("game_bar_ram_speed_enable", it); applyPrefs() }
+                                SettingsSwitchRow("RAM Frequency", "Show current RAM frequency(bus) in MT/s", ramSpeedEnable) { ramSpeedEnable = it; putBoolean("game_bar_ram_speed_enable", it); applyPrefs() }
                                 SettingsSwitchRow("RAM Temperature", "Show current RAM temperature", ramTempEnable) { ramTempEnable = it; putBoolean("game_bar_ram_temp_enable", it); applyPrefs() }
                                 SettingsSwitchRow("GPU Usage", "Show GPU usage percentage", gpuUsageEnable) { gpuUsageEnable = it; putBoolean("game_bar_gpu_usage_enable", it); applyPrefs() }
                                 SettingsSwitchRow("GPU Clock Speed", "Show current GPU clock frequency", gpuClockEnable) { gpuClockEnable = it; putBoolean("game_bar_gpu_clock_enable", it); applyPrefs() }
@@ -614,6 +692,7 @@ fun GameBarSettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     val ok = presetManager.resetToDefaults()
+                    if (ok) reloadPrefs()
                     Toast.makeText(
                         context,
                         if (ok) context.getString(R.string.toast_preset_reset_success) else context.getString(R.string.toast_preset_load_failed),

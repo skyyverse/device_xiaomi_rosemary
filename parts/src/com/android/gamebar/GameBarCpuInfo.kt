@@ -91,7 +91,7 @@ object GameBarCpuInfo {
             val celsius = raw / divider.toFloat()
             // Sanity check: CPU temp should be between 0 and 150°C
             if (celsius > 0f && celsius < 150f) {
-                String.format(Locale.getDefault(), "%.1f", celsius)
+                String.format(Locale.US, "%.1f", celsius)
             } else {
                 "N/A"
             }

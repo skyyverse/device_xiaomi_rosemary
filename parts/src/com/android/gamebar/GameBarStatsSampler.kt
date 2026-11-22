@@ -66,9 +66,9 @@ object GameBarStatsSampler {
         } else {
             -1f
         }
-        sample(Metric.FPS) { if (fps >= 0f) String.format(Locale.getDefault(), "%.0f", fps) else "N/A" }
+        sample(Metric.FPS) { if (fps >= 0f) String.format(Locale.US, "%.0f", fps) else "N/A" }
         sample(Metric.FRAME_TIME) {
-            if (fps > 0f) String.format(Locale.getDefault(), "%.2f", 1000f / fps) else "N/A"
+            if (fps > 0f) String.format(Locale.US, "%.2f", 1000f / fps) else "N/A"
         }
 
         val battery = if (Metric.BATTERY_TEMP in metrics || Metric.BATTERY_LEVEL in metrics ||
@@ -93,7 +93,7 @@ object GameBarStatsSampler {
         sample(Metric.RAM_TEMP) { GameBarMemInfo.getRamTemp() }
         sample(Metric.APP_RAM) { GameBarMemInfo.getAppRamUsage(context, packageName) }
         val dateTime = if (packageName.isNotEmpty()) {
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         } else {
             ""
         }

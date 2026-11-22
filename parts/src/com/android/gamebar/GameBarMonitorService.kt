@@ -55,7 +55,7 @@ class GameBarMonitorService : Service() {
         prefs.registerOnSharedPreferenceChangeListener(prefsListener)
         registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
             addAction(Intent.ACTION_SCREEN_ON)
-        })
+        }, Context.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

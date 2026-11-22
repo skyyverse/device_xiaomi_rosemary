@@ -84,7 +84,7 @@ class FpsRecordControlOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED)
     }
 
     private fun sampleRecording() {
@@ -319,6 +319,9 @@ class FpsRecordControlOverlayService : Service() {
             Toast.makeText(this, "Recording stopped (app minimized/switched)", Toast.LENGTH_SHORT).show()
         }
         updateBubbleAppearance()
+        if (bubbleView == null) {
+            stopSelf()
+        }
     }
 
     private fun updateBubbleAppearance() {
