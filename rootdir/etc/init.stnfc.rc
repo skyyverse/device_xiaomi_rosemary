@@ -9,7 +9,7 @@ service nfc_hal_service /vendor/bin/hw/android.hardware.nfc-service.st
     disabled
 
 # Start the HAL service in all modes (FM, meta, normal)
-on post-fs && property:ro.boot.hwname=rosemary
+on post-fs && property:ro.boot.product.hardware.sku=nfc
     start nfc_hal_service
     setprop ro.vendor.se.type HCE,UICC
 
