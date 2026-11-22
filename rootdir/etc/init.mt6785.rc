@@ -4,13 +4,8 @@ import /vendor/etc/init/hw/init.connectivity.rc
 import /vendor/etc/init/hw/init.mt6785.power.rc
 import /vendor/etc/init/hw/init.mt6785.usb.rc
 import /vendor/etc/init/hw/init.project.rc
-import /FWUpgradeInit.rc
-import /vendor/etc/init/hw/init.volte.rc
-import /vendor/etc/init/hw/init.mal.rc
 import /vendor/etc/init/hw/init.sensor_1_0.rc
 import /vendor/etc/init/hw/init.stnfc.rc
-import /system/etc/init/hw/init.stnfc.rc
-import init.mishow.ctl.rc
 
 # init.modem.rc must be the LAST rc file because vold.post_fs_data_done is set in it
 import /vendor/etc/init/hw/init.modem.rc
@@ -24,7 +19,7 @@ on init
 
     # M306 Add for sensor calibration command in 20201124 start
     mkdir /mnt/vendor/persist 0771 system system
-    mkdir /mnt/vendor/rescue 0771 system system
+    mkdir /mnt/rescue 0771 system system
 
 # change lk_env permission
     chown root system /proc/lk_env
@@ -55,7 +50,6 @@ on property:odm.display_hbm=2
 #lcd feature ++ end
 
 on charger
-    write /proc/perfmgr/boost_ctrl/cpu_ctrl/boot_freq "-1 -1 -1 -1"
     write /sys/devices/platform/10012000.dvfsrc_top/helio-dvfsrc/dvfsrc_debug "kir_emi -1"
     chmod 0660 /dev/spm
     chown system system /dev/spm
@@ -112,7 +106,6 @@ on fs
     write /proc/bootprof "INIT:fs"
 
     wait_for_prop hwservicemanager.ready "true"
-    start vendor.boot-hal-1-2
     write /proc/bootprof "INIT:Mount_START"
     write /sys/kernel/tracing/trace_marker "B|1|Mount"
     mount_all --early
@@ -123,25 +116,15 @@ on fs
     write /proc/sys/vm/swappiness 100
     write /sys/kernel/mm/swap/vma_ra_enabled false
     swapon_all /vendor/etc/fstab.mt6785
-		#Thermal
-    mkdir /data/vendor/.tp/ 0775 system system
-    mkdir /data/vendor/thermal 0771 root system
-    mkdir /data/vendor/thermal/config 0771 root system
 
 on late-fs
     write /proc/bootprof "INIT:late-fs"
     wait_for_prop hwservicemanager.ready "true"
-    exec_start wait_for_keymaster
     write /proc/bootprof "INIT:Mount_START --late"
     write /sys/kernel/tracing/trace_marker "B|1|Mount late"
     mount_all --late
     write /sys/kernel/tracing/trace_marker "E"
     write /proc/bootprof "INIT:Mount_END --late"
-# M306  Add for sensor calibration command in 20201123 start
-    chown system system /mnt/vendor/persist
-    chmod 0771 /mnt/vendor/persist
-    restorecon_recursive /mnt/vendor/persist
-# M306  Add for sensor calibration command in 20201123 end
 
 on post-fs
     write /proc/bootprof "INIT:post-fs"
@@ -167,9 +150,9 @@ on post-fs
     chown radio system /proc/freqhopping/status
     chown radio system /proc/freqhopping/userdef
     
-    chown system system /mnt/vendor/rescue
-    chmod 0771 /mnt/vendor/rescue
-    restorecon_recursive /mnt/vendor/rescue
+    chown system system /mnt/rescue
+    chmod 0771 /mnt/rescue
+    restorecon_recursive /mnt/rescue
 
 # change owner
     chown system system /proc/bootprof
@@ -195,9 +178,9 @@ on property:sys.boot_completed=1
     chmod 0664 /sys/class/power_supply/bms/authentic
 
 service batterysecret /vendor/bin/batterysecret
-    class last_start
+    class late_start
     user root
-    group system system wakelock
+    group system wakelock
     disabled
     seclabel u:r:batterysecret:s0
 
@@ -236,11 +219,6 @@ on post-fs-data
     chown system system /mnt/vendor/persist/sensor/default_cal_data.txt
     chown system system /mnt/vendor/persist/.sn.bin
 # M306  Add for sensor calibration command in 20201123 end
-
-    #add camera calidata
-    mkdir /vendor/etc/camera
-    chown root system /vendor/etc/camera
-    chmod 0777 /vendor/etc/camera
 
     mkdir /mnt/vendor/persist/camera
     chown system system /mnt/vendor/persist/camera
@@ -315,7 +293,6 @@ on post-fs-data
     chown system system /dev/spm
 
 # GPS
-    chmod 0775 /vendor/xbin/MPED
     chmod 0666 /dev/gps_emi
 
 # -----------------------
@@ -344,9 +321,6 @@ on post-fs-data
     chmod 0440 /dev/sspm
     chown root system /dev/sspm
 
-    # radvd
-    chmod 444 /etc/radvd/radvd.conf
-
     # Mali 3D GPU driver
     #insmod /vendor/lib/modules/mali.ko
     chmod 666 /dev/mali0
@@ -371,17 +345,9 @@ on post-fs-data
 
     chmod 0666 /dev/pmem_multimedia
 
-    # DT2W
-    chown system system /sys/touchpanel/double_tap
-    chmod 0644 /sys/touchpanel/double_tap
-
     # set ptmx group to non-root
     chown root radio /dev/ptmx
 
-	#mishow
-	chmod 0777 /sys/class/power_supply/battery/input_suspend
-    chown system system /sys/class/power_supply/battery/input_suspend
-	
     # M4U
     #insmod /vendor/lib/modules/m4u.ko
     #mknod /dev/M4U_device c 188 0
@@ -389,9 +355,6 @@ on post-fs-data
     #chown system media /dev/M4U_device
     chmod 0640 /proc/m4u
     chown system media /proc/m4u
-
-    #set mlock to 64MB for netd
-    setrlimit 8 67108864 67108864
 
     #set mlock limit to infinate (for m4u operation)
     setrlimit 8 -1 -1
@@ -423,7 +386,6 @@ on post-fs-data
     chown root radio /sys/devices/platform/Accdet_Driver/driver/accdet_call_state
 
     #Fingerprint
-    chmod 0666 /dev/goodix_fp
     mkdir /data/vendor/fpc 0777 system system
     mkdir /data/vendor/goodix 0777 system system
 
@@ -526,10 +488,6 @@ on post-fs-data
     chmod 0660 /dev/sw_sync
     chown system graphics /dev/sw_sync
 
-    # EM baseband file
-    chown root diag /vendor/bin/baseband_regdump
-    chmod 4750 /vendor/bin/baseband_regdump
-
     #pmu
     chown root radio /sys/devices/platform/mt-pmic/pmic_access_bank0
     chown root radio /sys/devices/platform/mt-pmic/pmic_access_bank1
@@ -549,9 +507,6 @@ on post-fs-data
     chmod 0664 /proc/cpu_ss/cpu_ss_mode
     chmod 0664 /proc/cpu_ss/cpu_ss_period
     chmod 0664 /proc/cpu_ss/cpu_ss_period_mode
-
-    #EM eint
-    chown root diag /sys/bus/platform/drivers/eint/current_eint
 
     # Android SEC related device nodes
     chmod 0660 /dev/sec
@@ -583,9 +538,6 @@ on post-fs-data
     #HDMI
     chown media system /dev/hdmitx
     chmod 0664 /dev/hdmitx
-
-    #FM
-    chmod 0777 /sys/class/fm/fm/lan_enable
 
     # JPEG
     #chmod 0444 /dev/mtk_jpeg
@@ -652,9 +604,6 @@ on post-fs-data
     #CCU
     chmod 0660 /dev/ccu
     chown system camera /dev/ccu
-    
-    chmod 0660 /sys/devices/platform/flashlights_mt6360/torch_brightness
-    chown system system /sys/devices/platform/flashlights_mt6360/torch_brightness
 
     #VOW
     chmod 0640 /dev/vow
@@ -683,33 +632,6 @@ on post-fs-data
     # DFRC
     chmod 0660 /dev/mtk_dfrc
     chown system graphics /dev/mtk_dfrc
-
-
-   #change partition permission
-
-    chmod 0640 /mtd@sec_ro
-    chown root system /mtd@sec_ro
-
-    chmod 0640 /mtd@preloader
-    chown root system /mtd@preloader
-
-    chmod 0660 /mtd@pro_info
-    chown root system /mtd@pro_info
-
-    chmod 0640 /mtd@bootimg
-    chown root system /mtd@bootimg
-
-    chmod 0640 /mtd@recovery
-    chown root system /mtd@recovery
-
-    chmod 0660 /mtd@nvram
-    chown root system /mtd@nvram
-
-    chmod 0660 /mtd@seccfg
-    chown root system /mtd@seccfg
-
-    chmod 0660 /mtd@misc
-    chown root system /mtd@misc
 
     chmod 0664 /sys/bus/platform/drivers/emi_ctrl/concurrency_scenario
     chown media media /sys/bus/platform/drivers/emi_ctrl/concurrency_scenario
@@ -744,14 +666,14 @@ on post-fs-data
     chown root system /dev/alarm
 
     #EM of MT6360
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360_pmu.5-0034/data
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360_pmic.5-001a/data
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360_ldo.5-0064/data
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360-4e/data
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360_pmu.5-0034/reg_addr
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360_pmic.5-001a/reg_addr
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360_ldo.5-0064/reg_addr
-    chmod 0664 sys/kernel/debug/rt-regmap/mt6360-4e/reg_addr
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360_pmu.5-0034/data
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360_pmic.5-001a/data
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360_ldo.5-0064/data
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360-4e/data
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360_pmu.5-0034/reg_addr
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360_pmic.5-001a/reg_addr
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360_ldo.5-0064/reg_addr
+    chmod 0664 /sys/kernel/debug/rt-regmap/mt6360-4e/reg_addr
 
 # End of adding by MTK drivers
 # -----------------------
@@ -779,11 +701,6 @@ on boot
     chown system system /sys/class/leds/blue/brightness
     chmod 0666 /sys/devices/platform/mtkfb/disp_param
     chown system system /sys/devices/platform/mtkfb/disp_param
-
-    chmod 0777 /sys/class/ant_class/ant_state
-    chmod 0777 /sys/class/ant_div_class/ant_div_state
-    chown system system /sys/class/ant_class/ant_state
-    chown system system /sys/class/ant_div_class/ant_div_state
 
     chown system system /sys/devices/system/cpu/cpufreq/hotplug/cpu_num_base
     chmod 0660 /sys/devices/system/cpu/cpufreq/hotplug/cpu_num_base
@@ -911,7 +828,6 @@ on boot
     chown root radio /proc/net/netfilter/nfnetlink_log
     chown root radio /proc/net/netfilter/nfnetlink_queue
 
-	chown system system /sys/class/thermal/thermal_message/sconfig
 # WMT proc
     chown shell system /proc/driver/wmt_dbg
     chown shell system /proc/driver/wmt_aee
@@ -926,16 +842,6 @@ on boot
     chmod 660 /dev/ttyGS1
     chown system radio /dev/ttyGS1
 
-#on boot
-    chown system system /sys/bus/platform/devices/aw8622/activate
-    chown system system /sys/bus/platform/devices/aw8622/index
-    chown system system /sys/bus/platform/devices/aw8622/duration
-    chown system system /sys/bus/platform/devices/aw8622/hwen
-    chown system system /sys/bus/platform/devices/aw8622/load_wavefile_ctrl
-    chown system system /sys/bus/platform/devices/aw8622/debug_val_ctrl
-    chown system system /sys/bus/platform/devices/aw8622/pwm_ctrl
-    chown system system /sys/bus/platform/devices/aw8622/test_cnt
-
     # DT2W
     chown system system /sys/touchpanel/double_tap
     chmod 0660 /sys/touchpanel/double_tap
@@ -947,7 +853,7 @@ on boot
     chown system system /sys/devices/platform/1100a000.spi0/spi_master/spi0/spi0.0/clk_enable
     chown system system /sys/devices/platform/1100a000.spi0/spi_master/spi0/spi0.0/authen_fd/performance
 
-    chmod 0644 /dev/goodix_fp
+    chmod 0660 /dev/goodix_fp
     chown system system /dev/goodix_fp
 
 # Stop bootprof
@@ -1019,14 +925,6 @@ service meta_tst /vendor/bin/meta_tst
     disabled
     oneshot
 
-service factory_no_image /vendor/bin/factory
-    user root
-    group radio system wifi media gps audio bluetooth wakelock nfc
-    capabilities BLOCK_SUSPEND NET_RAW NET_ADMIN SYS_ADMIN SYS_BOOT
-    socket factory-atci stream 660 radio system
-    disabled
-    oneshot	
-
 # start meta_tst for ATM
 on property:sys.boot_completed=1 && property:ro.boot.atm=enable
     start meta_tst
@@ -1055,39 +953,3 @@ on property:sys.boot_completed=1
 # add this link for cust mount
 on init
     symlink /dev/block/platform/bootdevice /dev/block/bootdevice
-
-# Ultrasound SQT test
-service ellipticEngineRecord /system/bin/elliptic_engine_record -s /dev/elliptic1:device -f binpayload -p /sdcard/elliptic/
-    class main
-    user root
-    oneshot
-    disabled
-on  property:vendor.elliptic.engine.record=1
-    start ellipticEngineRecord
-on  property:vendor.elliptic.engine.record=0
-    stop ellipticEngineRecord
-
-service ellipticSensorTest /system/bin/elliptic_sensor_test
-    class main
-    user root
-    oneshot
-    disabled
-on  property:vendor.elliptic.sensor.test=1
-    start ellipticSensorTest
-on  property:vendor.elliptic.sensor.test=0
-    stop ellipticSensorTest
-
-on property:sys.boot_completed="" && property:persist.radio.op.name=AT && property:persist.vendor.op.name.last=UN
-   setprop persist.vendor.op.name.last "AT"
-   setprop sys.powerctl "reboot"
-
-on property:sys.boot_completed="" && property:persist.radio.op.name=UN && property:persist.vendor.op.name.last=AT
-   setprop persist.vendor.op.name.last "UN"
-   setprop sys.powerctl "reboot"
-
-on property:sys.boot_completed="" && property:persist.radio.op.name=UN && property:persist.vendor.op.name.last=""
-   setprop persist.vendor.op.name.last "UN"
-   setprop sys.powerctl "reboot"
-
-on property:sys.boot_completed=1 && property:persist.radio.op.name=*
-   setprop persist.vendor.op.name.last ${persist.radio.op.name}

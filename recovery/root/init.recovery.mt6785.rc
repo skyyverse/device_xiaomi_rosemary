@@ -5,4 +5,5 @@ on init
 service init-recovery-mt6785-sh /init.recovery.mt6785.sh
     user root
     group root
+    oneshot
     seclabel u:r:recovery:s0

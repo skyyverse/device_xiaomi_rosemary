@@ -13,8 +13,8 @@ on post-fs-data
     chmod 0660 /dev/MAINAF
     chown system camera /dev/MAINAF
 
-    chmod 0660 /dev/MAINAF2
-    chown system camera /dev/MAINAF2
+    chmod 0660 /dev/MAIN2AF
+    chown system camera /dev/MAIN2AF
 
     chmod 0660 /dev/SUBAF
     chown system camera /dev/SUBAF
@@ -58,15 +58,11 @@ on post-fs-data
 # for mibokeh use
     mkdir /data/vendor/camera/mibokeh 0776 system camera
 
-#SMB
-    chown system system /proc/smb/ScreenComm
-    chmod 0660 /proc/smb/ScreenComm
-
     chmod 0660 /dev/spm
     chown system system /dev/spm
 
 #charge permission control
-    chmod 0777 /sys/class/power_supply/battery/input_suspend
+    chmod 0660 /sys/class/power_supply/battery/input_suspend
     chown system system /sys/class/power_supply/battery/input_suspend
 
 on init

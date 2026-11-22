@@ -12,8 +12,8 @@
 
 # eMMC/UFS common
 /dev/block/by-name/misc2     0660    root    system
-/dev/block/by-name/boot      0640    root    system
-/dev/block/by-name/recovery  0640    root    system
+/dev/block/by-name/boot_a    0640    root    system
+/dev/block/by-name/boot_b    0640    root    system
 /dev/block/by-name/secro     0640    root    system
 /dev/block/by-name/seccfg    0660    root    system
 /dev/block/by-name/proinfo   0660    root    system
@@ -139,7 +139,7 @@
 /dev/ttyRB*               0660   radio      radio
 
 # Mali node
-/dev/mali                 0666   system     graphics
+/dev/mali0                0666   system     graphics
 
 # Change ION driver permission
 /dev/ion                  0666   system     graphics
