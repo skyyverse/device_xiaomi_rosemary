@@ -4,19 +4,19 @@ genfscon sysfs /devices/platform/1100a000.spi0/spi_master/spi0/spi0.0/wakeup_ena
 genfscon sysfs /devices/platform/1100a000.spi0/spi_master/spi0/spi0.0/modalias							u:object_r:sysfs_fingerprint:s0
 genfscon sysfs /devices/platform/1100a000.spi0/spi_master/spi0/spi0.0/clk_enable						u:object_r:sysfs_fingerprint:s0
 genfscon sysfs /devices/platform/1100a000.spi0/spi_master/spi0/spi0.0/authen_fd/performance				        u:object_r:sysfs_fingerprint:s0
-genfscon sysfs /devices/platform/11012000.spi2/spi_master/spi0/spi0.0/authen_fd/performance                                     u:object_r:sysfs_fingerprint:s0
 genfscon sysfs /devices/platform/11012000.spi2/spi_master/spi2/spi2.0/authen_fd                                                 u:object_r:sysfs_fingerprint:s0
 genfscon sysfs /devices/platform/11012000.spi2/spi_master/spi2/spi2.0/authen_fd/performance                                     u:object_r:sysfs_fingerprint:s0
 genfscon sysfs /devices/platform/fingerprint                                                                                    u:object_r:sysfs_fingerprint:s0
 
 # GPU
-genfscon sysfs /kernel/gpu/gpu_min_clock u:object_r:vendor_sysfs_gpu:s0
-genfscon sysfs /kernel/gpu/gpu_max_clock u:object_r:vendor_sysfs_gpu:s0
 genfscon proc /mtk_mali/utilization u:object_r:proc_gpu:s0
 genfscon proc /gpufreq/gpufreq_opp_dump u:object_r:proc_gpu:s0
 
+# DRAM
+genfscon sysfs /bus/platform/drivers/emi_clk_test/read_dram_data_rate u:object_r:vendor_sysfs_dram:s0
+
 # Health
-genfscon sysfs /devices/platform/11004000.i2c7/i2c-7/7-0055/power_supply/parallel                                               u:object_r:sysfs_batteryinfo:s0
+genfscon sysfs /devices/platform/1101a000.i2c7/i2c-7/7-0065/power_supply                                                        u:object_r:sysfs_batteryinfo:s0
 genfscon sysfs /devices/platform/1101a000.i2c7/i2c-7/7-0051/power_supply							u:object_r:sysfs_batteryinfo:s0
 genfscon sysfs /devices/platform/battery/power_supply/battery                                                                   u:object_r:sysfs_batteryinfo:s0
 genfscon sysfs /devices/platform/battery/power_supply/bms     	       	       	       	       	       	       	       	       	u:object_r:sysfs_batteryinfo:s0
@@ -27,14 +27,11 @@ genfscon sysfs /devices/platform/mt_charger/power_supply/charger                
 genfscon sysfs /devices/platform/mt_charger/power_supply/main                                                                   u:object_r:sysfs_batteryinfo:s0
 genfscon sysfs /devices/platform/mt_charger/power_supply/usb                                                                    u:object_r:sysfs_batteryinfo:s0
 genfscon sysfs /devices/platform/pd_adapter/Charging_Adapter/pd_adapter                                                         u:object_r:sysfs_batteryinfo:s0
-genfscon sysfs /devices/platform/rt-pd-manager/typec/port0/                                                                     u:object_r:sysfs_usb_nonplat:s0
+genfscon sysfs /devices/platform/rt-pd-manager/typec/port0                                                                      u:object_r:sysfs_usb_nonplat:s0
 
 # Leds
 genfscon sysfs /devices/platform/11016000.i2c5/i2c-5/5-0034/mt6360_pmu_rgbled.4.auto/leds 					u:object_r:sysfs_leds:s0
 genfscon sysfs /devices/platform/leds-mt65xx/leds/lcd-backlight                           					u:object_r:sysfs_leds:s0
-
-# Performance
-genfscon proc /sys/kernel/sched_stune_task_threshold 										u:object_r:proc_sched_stune:s0
 
 # Touchpanel
 genfscon sysfs /touchpanel                            										u:object_r:sysfs_touchpanel:s0
