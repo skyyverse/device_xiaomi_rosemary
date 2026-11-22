@@ -26,8 +26,19 @@ void search_variant(const std::vector<variant_info_t> variants) {
             (variant.sku_value == "" || variant.sku_value == sku_value) &&
             (variant.vendor_sku_value == "" || variant.vendor_sku_value == vendor_sku_value)) {
             set_variant_props(variant);
-            break;
+            return;
         }
+    }
+
+    for (const auto& variant : variants) {
+        if (variant.vendor_sku_value == "rosemary") {
+            set_variant_props(variant);
+            return;
+        }
+    }
+
+    if (!variants.empty()) {
+        set_variant_props(variants.front());
     }
 }
 
@@ -36,7 +47,6 @@ void set_variant_props(const variant_info_t variant) {
     set_ro_build_prop("device", variant.device, true);
     set_ro_build_prop("marketname", variant.marketname, true);
     set_ro_build_prop("model", variant.model, true);
-    property_override("vendor.usb.product_string", variant.marketname, true);
 
     if (access("/system/bin/recovery", F_OK) != 0) {
         property_override("bluetooth.device.default_name", variant.marketname, true);
